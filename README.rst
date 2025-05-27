@@ -47,18 +47,40 @@ This will:
 3. Replace them with the suggested replacement expression
 4. Show a diff of the changes
 
-Example:
+Options:
+
+* ``-w, --write``: Write changes back to files instead of printing to stdout
+* ``--check``: Check if files need migration without modifying them (exits with code 1 if changes are needed)
+
+Examples:
+
+Preview changes:
 
 .. code-block:: console
 
-   $ dissolve migrate myproject/
-   --- myproject/utils.py
-   +++ myproject/utils.py
-   @@ -10,7 +10,7 @@
-    def process_data(data):
-   -    result = inc(x=5)
-   +    result = 5 + 1
-        return result
+   $ dissolve migrate myproject/utils.py
+   # Migrated: myproject/utils.py
+   ...
+   result = 5 + 1
+   ...
+
+Check if migration is needed:
+
+.. code-block:: console
+
+   $ dissolve migrate --check myproject/
+   myproject/utils.py: needs migration
+   myproject/core.py: up to date
+   $ echo $?
+   1
+
+Apply changes:
+
+.. code-block:: console
+
+   $ dissolve migrate --write myproject/
+   Modified: myproject/utils.py
+   Unchanged: myproject/core.py
 
 The command respects the replacement expressions defined in the ``@replace_me``
 decorator and substitutes actual argument values.

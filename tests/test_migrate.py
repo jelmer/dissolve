@@ -18,7 +18,7 @@ from dissolve.migrate import migrate_source
 class TestMigrateSource:
     def test_migrate_with_substring_params(self):
         """Test that migration handles parameter names that are substrings correctly."""
-        source = '''
+        source = """
 from dissolve import replace_me
 
 @replace_me()
@@ -28,16 +28,17 @@ def process_range(n):
 # Usage
 result = process_range(5)
 items = process_range(n=10)
-'''
-        
+"""
+
         result = migrate_source(source.strip())
-        
+
         # Check that range(n) is properly replaced with range(5) and range(10)
         assert "list(range(5))" in result
         assert "list(range(10))" in result
         # Make sure it didn't do substring replacement like "ra5ge"
         assert "ra5ge" not in result
         assert "ra10ge" not in result
+
     def test_simple_function_replacement(self):
         source = """
 from dissolve import replace_me

@@ -17,11 +17,12 @@
 from typing import TypeVar, Protocol, Callable, Any
 
 # Type variable for decorated functions
-F = TypeVar('F', bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 class Replacement(Protocol):
     """Protocol for replacement information."""
+
     old_name: str
     replacement_expr: str
     since: str | None

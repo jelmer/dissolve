@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import ast
-from dissolve.ast_utils import substitute_in_expression, substitute_parameters, create_ast_from_value
+from dissolve.ast_utils import substitute_in_expression, substitute_parameters
 
 
 def test_substitute_simple_parameters():
@@ -39,7 +39,7 @@ def test_substitute_parameter_with_substring_names():
     param_map = {"n": 5}
     result = substitute_in_expression(expr, param_map)
     assert result == "range(5)"
-    
+
     # More complex case
     expr = "func(name, namespace)"
     param_map = {"name": "'test'", "namespace": "'global'"}
@@ -100,14 +100,11 @@ def test_substitute_with_attribute_access():
 def test_substitute_parameters_with_ast_nodes():
     """Test direct AST substitution."""
     # Create an expression AST
-    expr_ast = ast.parse("x + y", mode='eval').body
-    
+    expr_ast = ast.parse("x + y", mode="eval").body
+
     # Create parameter map with AST nodes
-    param_map = {
-        "x": ast.Constant(value=5),
-        "y": ast.Constant(value=10)
-    }
-    
+    param_map = {"x": ast.Constant(value=5), "y": ast.Constant(value=10)}
+
     result_ast = substitute_parameters(expr_ast, param_map)
     result = ast.unparse(result_ast)
     assert result == "5 + 10"

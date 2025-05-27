@@ -63,6 +63,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         action="store_true",
         help="Write changes back to files (default: print to stdout)",
     )
+    migrate_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check if files need migration without modifying them (exit 1 if changes needed)",
+    )
 
     # Remove command
     remove_parser = subparsers.add_parser(
@@ -89,20 +94,45 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "migrate":
+        if args.check and args.write:
+            parser.error("--check and --write cannot be used together")
+
+        needs_migration = False
         for filepath in args.files:
             try:
-                result = migrate_file_with_imports(filepath, write=args.write)
-                if not args.write:
+                with open(filepath, "r") as f:
+                    original = f.read()
+                result = migrate_file_with_imports(filepath, write=False)
+
+                if args.check:
+                    # Check mode: just report if changes are needed
+                    if result != original:
+                        print(f"{filepath}: needs migration")
+                        needs_migration = True
+                    else:
+                        print(f"{filepath}: up to date")
+                elif args.write:
+                    # Write mode: update file if changed
+                    if result != original:
+                        with open(filepath, "w") as f:
+                            f.write(result)
+                        print(f"Modified: {filepath}")
+                    else:
+                        print(f"Unchanged: {filepath}")
+                else:
+                    # Default: print to stdout
                     print(f"# Migrated: {filepath}")
                     print(result)
                     print()
-                else:
-                    print(f"Modified: {filepath}")
             except Exception as e:
                 import sys
 
                 print(f"Error processing {filepath}: {e}", file=sys.stderr)
                 return 1
+
+        # In check mode, exit with code 1 if any files need migration
+        if args.check and needs_migration:
+            return 1
     elif args.command == "remove":
         for filepath in args.files:
             try:

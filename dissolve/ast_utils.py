@@ -15,20 +15,20 @@
 """AST utilities for parameter substitution in expressions."""
 
 import ast
-from typing import Dict, Any, Union
+from typing import Dict, Any
 
 
 class ParameterSubstitutor(ast.NodeTransformer):
     """Replace parameter names in an AST with their actual values."""
-    
+
     def __init__(self, param_map: Dict[str, ast.AST]):
         """Initialize with a mapping of parameter names to AST nodes.
-        
+
         Args:
             param_map: Dictionary mapping parameter names to their AST representations
         """
         self.param_map = param_map
-    
+
     def visit_Name(self, node: ast.Name) -> ast.AST:
         """Replace Name nodes that match parameters."""
         if node.id in self.param_map:
@@ -44,11 +44,11 @@ class ParameterSubstitutor(ast.NodeTransformer):
 
 def substitute_parameters(expr_ast: ast.AST, param_map: Dict[str, ast.AST]) -> ast.AST:
     """Substitute parameters in an AST expression.
-    
+
     Args:
         expr_ast: The AST expression containing parameter references
         param_map: Dictionary mapping parameter names to their AST representations
-        
+
     Returns:
         New AST with parameters substituted
     """
@@ -58,10 +58,10 @@ def substitute_parameters(expr_ast: ast.AST, param_map: Dict[str, ast.AST]) -> a
 
 def create_ast_from_value(value: Any) -> ast.AST:
     """Create an AST node from a Python value.
-    
+
     Args:
         value: Python value to convert to AST
-        
+
     Returns:
         AST representation of the value
     """
@@ -70,27 +70,29 @@ def create_ast_from_value(value: Any) -> ast.AST:
 
 def substitute_in_expression(expr_str: str, param_map: Dict[str, Any]) -> str:
     """Substitute parameters in a string expression using AST.
-    
+
     Args:
         expr_str: Expression string with parameters
         param_map: Dictionary mapping parameter names to their values
-        
+
     Returns:
         Expression string with parameters substituted
     """
     try:
         # Parse the expression
-        expr_ast = ast.parse(expr_str, mode='eval').body
-        
+        expr_ast = ast.parse(expr_str, mode="eval").body
+
         # Convert values to AST nodes
         ast_param_map = {
-            name: create_ast_from_value(value) if not isinstance(value, ast.AST) else value
+            name: create_ast_from_value(value)
+            if not isinstance(value, ast.AST)
+            else value
             for name, value in param_map.items()
         }
-        
+
         # Substitute parameters
         result_ast = substitute_parameters(expr_ast, ast_param_map)
-        
+
         # Convert back to string
         return ast.unparse(result_ast)
     except Exception:

@@ -35,7 +35,7 @@ Example:
 from typing import Optional, Union, Tuple, Callable, TypeVar, Any
 
 # Type variable for preserving function signatures
-F = TypeVar('F', bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 def replace_me(since: Optional[Union[Tuple[int, ...], str]] = None) -> Callable[[F], F]:
