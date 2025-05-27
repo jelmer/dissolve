@@ -15,13 +15,13 @@
 """AST utilities for parameter substitution in expressions."""
 
 import ast
-from typing import Dict, Any
+from typing import Dict, Any, Mapping
 
 
 class ParameterSubstitutor(ast.NodeTransformer):
     """Replace parameter names in an AST with their actual values."""
 
-    def __init__(self, param_map: Dict[str, ast.AST]):
+    def __init__(self, param_map: Mapping[str, ast.AST]):
         """Initialize with a mapping of parameter names to AST nodes.
 
         Args:
@@ -42,7 +42,7 @@ class ParameterSubstitutor(ast.NodeTransformer):
         return self.generic_visit(node)
 
 
-def substitute_parameters(expr_ast: ast.AST, param_map: Dict[str, ast.AST]) -> ast.AST:
+def substitute_parameters(expr_ast: ast.AST, param_map: Mapping[str, ast.AST]) -> ast.AST:
     """Substitute parameters in an AST expression.
 
     Args:

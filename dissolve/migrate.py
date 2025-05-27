@@ -45,7 +45,7 @@ Example:
 
 import ast
 import logging
-from typing import Dict, List, Tuple, Optional, Callable
+from typing import Dict, List, Tuple, Optional, Callable, Mapping
 from .ast_utils import substitute_parameters
 
 
@@ -225,7 +225,7 @@ class FunctionCallReplacer(ast.NodeTransformer):
 
     def _build_param_map(
         self, call: ast.Call, replacement: ReplaceInfo
-    ) -> Dict[str, ast.AST]:
+    ) -> Dict[str, ast.expr]:
         """Build a mapping of parameter names to their AST values.
 
         Args:
