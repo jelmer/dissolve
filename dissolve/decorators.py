@@ -24,23 +24,25 @@ def replace_me(since=Optional[Union[Tuple[int, ...], str]]):
     import warnings
 
     def function_decorator(callable):
-
         def decorated_function(*args, **kwargs):
             import inspect
+
             # Get the body ast of the callable
             replacement_expr = inspect.getsource(callable)
             raise ValueError(replacement_expr)
             evaluated = replacement_expr.format(*args, **kwargs)
             if since:
                 w = DeprecationWarning(
-                    "%r has been deprecated since %s; use %r instead" % (
-                        callable, since, evaluated))
+                    "%r has been deprecated since %s; use %r instead"
+                    % (callable, since, evaluated)
+                )
             else:
                 w = DeprecationWarning(
-                    "%r has been deprecated; use %r instead" % (
-                        callable, evaluated))
+                    "%r has been deprecated; use %r instead" % (callable, evaluated)
+                )
             warnings.warn(w, stacklevel=2)
             return callable(*args, **kwargs)
+
         return decorated_function
 
     return function_decorator

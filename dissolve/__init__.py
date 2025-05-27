@@ -15,7 +15,8 @@
 __version__ = (0, 0, 2)
 
 
-__all__ = ['replace_me']
+__all__ = ["replace_me", "migrate"]
 
 
 from .decorators import replace_me
+from . import migrate

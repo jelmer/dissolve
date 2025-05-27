@@ -18,7 +18,6 @@ import pytest
 
 
 def test_replace_me():
-
     @replace_me
     def inc(x):
         return x + 1
