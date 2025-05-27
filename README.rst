@@ -26,3 +26,37 @@ Running this code will yield a warning:
    >>> inc(x=3)
    <stdin>:1: DeprecationWarning: <function inc at 0x7feaf5ead5a0> has been deprecated since 0.1.0; use 'x + 1' instead
    4
+
+
+dissolve migrate
+================
+
+The ``dissolve migrate`` command can automatically update your codebase to replace deprecated function calls with their suggested replacements.
+
+Usage:
+
+.. code-block:: console
+
+   $ dissolve migrate path/to/code
+
+This will:
+
+1. Search for Python files in the specified path
+2. Find calls to functions decorated with ``@replace_me``
+3. Replace them with the suggested replacement expression
+4. Show a diff of the changes
+
+Example:
+
+.. code-block:: console
+
+   $ dissolve migrate myproject/
+   --- myproject/utils.py
+   +++ myproject/utils.py
+   @@ -10,7 +10,7 @@
+    def process_data(data):
+   -    result = inc(x=5)
+   +    result = 5 + 1
+        return result
+
+The command respects the replacement expressions defined in the ``@replace_me`` decorator and substitutes actual argument values.
