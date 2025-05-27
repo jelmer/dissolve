@@ -45,7 +45,7 @@ Example:
 
 import ast
 import logging
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Callable
 from .ast_utils import substitute_parameters
 
 
@@ -191,11 +191,11 @@ class FunctionCallReplacer(ast.NodeTransformer):
         self, original_call: ast.Call, replacement: ReplaceInfo
     ) -> ast.AST:
         """Create an AST node for the replacement expression.
-        
+
         Args:
             original_call: The original function call to replace.
             replacement: Information about the replacement expression.
-            
+
         Returns:
             AST node representing the replacement expression with arguments
             substituted.
@@ -226,6 +226,15 @@ class FunctionCallReplacer(ast.NodeTransformer):
     def _build_param_map(
         self, call: ast.Call, replacement: ReplaceInfo
     ) -> Dict[str, ast.AST]:
+        """Build a mapping of parameter names to their AST values.
+
+        Args:
+            call: The function call with arguments.
+            replacement: Information about the replacement expression.
+
+        Returns:
+            Dictionary mapping parameter names to their AST representations.
+        """
         # For now, we'll do a simple mapping based on position
         # This could be enhanced to handle keyword arguments properly
         param_map = {}
@@ -247,15 +256,38 @@ class FunctionCallReplacer(ast.NodeTransformer):
         return param_map
 
 
-def migrate_source(source: str, module_resolver=None) -> str:
+def migrate_source(
+    source: str,
+    module_resolver: Optional[Callable[[str, Optional[str]], Optional[str]]] = None,
+) -> str:
     """Migrate Python source code by inlining replace_me decorated functions.
 
+    This function analyzes the source code for calls to functions decorated
+    with @replace_me and replaces those calls with their suggested replacements.
+    It can also resolve imports to find deprecated functions in other modules.
+
     Args:
-        source: Python source code to migrate
-        module_resolver: Optional callable that takes (module_name, file_dir) and returns module source
+        source: Python source code to migrate.
+        module_resolver: Optional callable that takes (module_name, file_dir)
+            and returns the module's source code as a string, or None if the
+            module cannot be resolved.
 
     Returns:
-        The migrated source code
+        The migrated source code with deprecated function calls replaced.
+
+    Example:
+        Basic migration::
+
+            source = '''
+            @replace_me()
+            def old_func(x):
+                return new_func(x * 2)
+
+            result = old_func(5)
+            '''
+
+            migrated = migrate_source(source)
+            # result = new_func(5 * 2)
     """
     # Parse the source code
     tree = ast.parse(source)
@@ -302,12 +334,19 @@ def migrate_source(source: str, module_resolver=None) -> str:
 def migrate_file(filepath: str, write: bool = False) -> str:
     """Migrate a Python file by inlining replace_me decorated functions.
 
+    This is a simple wrapper that reads a file, migrates its content,
+    and optionally writes it back. It only processes deprecations defined
+    within the same file.
+
     Args:
-        filepath: Path to the Python file to migrate
-        write: Whether to write changes back to the file
+        filepath: Path to the Python file to migrate.
+        write: Whether to write changes back to the file.
 
     Returns:
-        The migrated source code
+        The migrated source code.
+
+    Raises:
+        IOError: If the file cannot be read or written.
     """
     with open(filepath, "r") as f:
         source = f.read()
@@ -324,8 +363,37 @@ def migrate_file(filepath: str, write: bool = False) -> str:
 def migrate_file_with_imports(filepath: str, write: bool = False) -> str:
     """Migrate a Python file, considering imported deprecated functions.
 
-    This version analyzes imports and attempts to fetch replacement
-    information from imported modules.
+    This enhanced version analyzes imports and attempts to fetch replacement
+    information from imported modules in the same directory structure.
+    It can handle cases where deprecated functions are imported from other
+    local modules.
+
+    Args:
+        filepath: Path to the Python file to migrate.
+        write: Whether to write changes back to the file.
+
+    Returns:
+        The migrated source code.
+
+    Raises:
+        IOError: If the file cannot be read or written.
+
+    Example:
+        If module_a.py contains::
+
+            from module_b import old_func
+            result = old_func(10)
+
+        And module_b.py contains::
+
+            @replace_me()
+            def old_func(x):
+                return new_func(x, mode="legacy")
+
+        The migration will update module_a.py to::
+
+            from module_b import old_func
+            result = new_func(10, mode="legacy")
     """
     import os
 
@@ -335,7 +403,7 @@ def migrate_file_with_imports(filepath: str, write: bool = False) -> str:
     file_dir = os.path.dirname(os.path.abspath(filepath))
 
     # Create a module resolver for local files
-    def local_module_resolver(module_name, _):
+    def local_module_resolver(module_name: str, _: Optional[str]) -> Optional[str]:
         module_path = module_name.replace(".", "/")
         potential_paths = [
             os.path.join(file_dir, f"{module_path}.py"),

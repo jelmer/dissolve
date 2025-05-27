@@ -12,19 +12,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Functionality for removing @replace_me decorators from source code.
+
+This module provides tools to clean up source code by removing @replace_me
+decorators after migration is complete. It supports selective removal based
+on version constraints.
+
+The removal process can:
+- Remove all @replace_me decorators
+- Remove only decorators with versions older than a specified version
+- Preserve the decorated functions while removing only the decorators
+
+Example:
+    Remove all decorators::
+
+        source = remove_decorators(source, remove_all=True)
+
+    Remove decorators older than version 2.0.0::
+
+        source = remove_decorators(source, before_version="2.0.0")
+"""
+
 import ast
 from typing import Optional
 from packaging import version
 
 
 class ReplaceRemover(ast.NodeTransformer):
-    """Remove @replace_me decorators from function definitions."""
+    """Remove @replace_me decorators from function definitions.
 
-    def __init__(self, before_version: Optional[str] = None, remove_all: bool = False):
+    This AST transformer selectively removes @replace_me decorators based on
+    version constraints while preserving the decorated functions.
+
+    Attributes:
+        before_version: Remove decorators with versions older than this.
+        remove_all: If True, remove all @replace_me decorators regardless of version.
+    """
+
+    def __init__(
+        self, before_version: Optional[str] = None, remove_all: bool = False
+    ) -> None:
         self.before_version = before_version
         self.remove_all = remove_all
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        """Process function definitions to remove @replace_me decorators."""
         # Process the function body first
         self.generic_visit(node)
 
@@ -41,6 +73,7 @@ class ReplaceRemover(ast.NodeTransformer):
     def visit_AsyncFunctionDef(
         self, node: ast.AsyncFunctionDef
     ) -> ast.AsyncFunctionDef:
+        """Process async function definitions to remove @replace_me decorators."""
         # Handle async functions the same way
         self.generic_visit(node)
 
@@ -54,7 +87,14 @@ class ReplaceRemover(ast.NodeTransformer):
         return node
 
     def _should_remove_decorator(self, decorator: ast.AST) -> bool:
-        """Check if a decorator should be removed."""
+        """Check if a decorator should be removed.
+
+        Args:
+            decorator: The decorator AST node to check.
+
+        Returns:
+            True if the decorator should be removed, False otherwise.
+        """
         if not self._is_replace_me_decorator(decorator):
             return False
 
@@ -78,7 +118,14 @@ class ReplaceRemover(ast.NodeTransformer):
             return False
 
     def _is_replace_me_decorator(self, decorator: ast.AST) -> bool:
-        """Check if a decorator is @replace_me."""
+        """Check if a decorator is @replace_me.
+
+        Args:
+            decorator: The decorator AST node to check.
+
+        Returns:
+            True if this is a @replace_me decorator, False otherwise.
+        """
         if isinstance(decorator, ast.Name) and decorator.id == "replace_me":
             return True
         if isinstance(decorator, ast.Call):
@@ -95,7 +142,14 @@ class ReplaceRemover(ast.NodeTransformer):
         return False
 
     def _extract_version(self, decorator: ast.AST) -> Optional[str]:
-        """Extract the 'since' version from a @replace_me decorator."""
+        """Extract the 'since' version from a @replace_me decorator.
+
+        Args:
+            decorator: The decorator AST node.
+
+        Returns:
+            The version string if found, None otherwise.
+        """
         if not isinstance(decorator, ast.Call):
             return None
 
@@ -123,20 +177,50 @@ def remove_decorators(
 ) -> str:
     """Remove @replace_me decorators from Python source code.
 
+    This function parses the source code and selectively removes @replace_me
+    decorators based on the provided criteria. The decorated functions remain
+    intact; only the decorators are removed.
+
     Args:
-        source: Python source code
-        before_version: Remove decorators with version older than this
-        remove_all: Remove all @replace_me decorators regardless of version
+        source: Python source code to process.
+        before_version: Remove decorators with version older than this.
+            Version comparison uses standard semantic versioning rules.
+        remove_all: Remove all @replace_me decorators regardless of version.
+            If True, before_version is ignored.
 
     Returns:
-        Modified source code with decorators removed
+        Modified source code with decorators removed.
+
+    Example:
+        Remove all decorators::
+
+            source = '''
+            @replace_me(since="1.0.0")
+            def old_func():
+                return new_func()
+            '''
+
+            result = remove_decorators(source, remove_all=True)
+            # def old_func():
+            #     return new_func()
+
+        Remove old decorators::
+
+            result = remove_decorators(source, before_version="2.0.0")
+            # Removes decorators with since < 2.0.0
     """
     tree = ast.parse(source)
 
     remover = ReplaceRemover(before_version=before_version, remove_all=remove_all)
     new_tree = remover.visit(tree)
 
-    return ast.unparse(new_tree)
+    result = ast.unparse(new_tree)
+
+    # Preserve trailing newline if original had one
+    if source.endswith("\n") and not result.endswith("\n"):
+        result += "\n"
+
+    return result
 
 
 def remove_from_file(
@@ -147,14 +231,32 @@ def remove_from_file(
 ) -> str:
     """Remove @replace_me decorators from a Python file.
 
+    This is a convenience wrapper that reads a file, removes decorators
+    according to the specified criteria, and optionally writes it back.
+
     Args:
-        filepath: Path to the Python file
-        before_version: Remove decorators with version older than this
-        remove_all: Remove all @replace_me decorators regardless of version
-        write: Whether to write changes back to the file
+        filepath: Path to the Python file to process.
+        before_version: Remove decorators with version older than this.
+            Version comparison uses standard semantic versioning rules.
+        remove_all: Remove all @replace_me decorators regardless of version.
+            If True, before_version is ignored.
+        write: Whether to write changes back to the file.
 
     Returns:
-        Modified source code
+        Modified source code with decorators removed.
+
+    Raises:
+        IOError: If the file cannot be read or written.
+
+    Example:
+        Remove all decorators from a file::
+
+            result = remove_from_file("mymodule.py", remove_all=True, write=True)
+
+        Remove old decorators and preview changes::
+
+            result = remove_from_file("mymodule.py", before_version="2.0.0")
+            print(result)  # Preview changes without writing
     """
     with open(filepath, "r") as f:
         source = f.read()

@@ -189,3 +189,128 @@ result = regular_function(5)
             assert f.read() == source
     finally:
         os.unlink(temp_path)
+
+
+def test_remove_check_no_decorators():
+    """Test remove --check with files that have no decorators to remove."""
+    source = """def regular_function(x):
+    return x + 1
+
+result = regular_function(5)
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["remove", "--check", "--all", temp_path])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+        assert "no removable decorators" in output
+    finally:
+        os.unlink(temp_path)
+
+
+def test_remove_check_has_decorators():
+    """Test remove --check with files that have decorators to remove."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="1.0.0")
+def old_func(x):
+    return x + 1
+
+result = old_func(5)
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["remove", "--check", "--all", temp_path])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 1
+        assert "has removable decorators" in output
+    finally:
+        os.unlink(temp_path)
+
+
+def test_remove_check_before_version():
+    """Test remove --check with version filtering."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="0.5.0")
+def very_old_func(x):
+    return x + 1
+
+@replace_me(since="2.0.0")
+def newer_func(x):
+    return x * 2
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["remove", "--check", "--before", "1.0.0", temp_path])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        # Should detect removable decorators (0.5.0 < 1.0.0)
+        assert exit_code == 1
+        assert "has removable decorators" in output
+    finally:
+        os.unlink(temp_path)
+
+
+def test_remove_check_write_conflict():
+    """Test that remove --check and --write cannot be used together."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write("print('test')")
+        temp_path = f.name
+
+    try:
+        # Capture stderr
+        old_stderr = sys.stderr
+        sys.stderr = StringIO()
+
+        try:
+            # argparse.error() raises SystemExit
+            exit_code = main(["remove", "--check", "--write", temp_path])
+        except SystemExit as e:
+            exit_code = e.code
+            error_output = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+
+        # Should fail with exit code 2
+        assert exit_code == 2
+        assert "--check and --write cannot be used together" in error_output
+    finally:
+        os.unlink(temp_path)

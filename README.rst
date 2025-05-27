@@ -103,20 +103,33 @@ Options:
 * ``--all``: Remove all ``@replace_me`` decorators regardless of version
 * ``--before VERSION``: Remove only decorators with a version older than the specified version
 * ``-w, --write``: Write changes back to files (default: print to stdout)
+* ``--check``: Check if files have removable decorators without modifying them (exits with code 1 if changes are needed)
 
 Examples:
+
+Check if decorators can be removed:
+
+.. code-block:: console
+
+   $ dissolve remove --check --all myproject/
+   myproject/utils.py: has removable decorators
+   myproject/core.py: no removable decorators
+   $ echo $?
+   1
 
 Remove all decorators:
 
 .. code-block:: console
 
-   $ dissolve remove --all myproject/
+   $ dissolve remove --all --write myproject/
+   Modified: myproject/utils.py
+   Unchanged: myproject/core.py
 
 Remove decorators before version 2.0.0:
 
 .. code-block:: console
 
-   $ dissolve remove --before 2.0.0 myproject/
+   $ dissolve remove --before 2.0.0 --write myproject/
 
 This will remove decorators like ``@replace_me(since="1.0.0")`` but keep
 ``@replace_me(since="2.0.0")`` and newer.
