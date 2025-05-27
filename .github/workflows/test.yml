@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
 
     steps:
@@ -26,8 +26,9 @@ jobs:
         pip install -U .
     - name: Style checks
       run: |
-        pip install flake8
-        python -m flake8
+        pip install ruff
+        python -m ruff check .
+        python -m ruff format --check .
     - name: Typing checks
       run: |
         pip install -U mypy
