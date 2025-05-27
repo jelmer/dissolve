@@ -12,7 +12,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__version__ = (0, 0, 2)
+"""Dissolve - A Python library for replacing deprecated API calls.
+
+Dissolve helps library maintainers guide users from deprecated APIs to new ones
+by providing clear, actionable replacement suggestions. It consists of two main
+components:
+
+1. The `@replace_me` decorator: Marks functions as deprecated and suggests
+   replacements with actual argument values substituted.
+
+2. Migration tools: Command-line utilities to automatically update codebases
+   by replacing deprecated function calls with their suggested replacements.
+
+Basic Usage:
+    Mark a deprecated function::
+
+        from dissolve import replace_me
+
+        @replace_me(since="2.0.0")
+        def old_function(x, y):
+            return new_function(x, y, mode="legacy")
+
+    Migrate a codebase::
+
+        $ dissolve migrate myproject/*.py --write
+
+    Remove decorators after migration::
+
+        $ dissolve remove myproject/*.py --before 3.0.0 --write
+
+See the documentation for more detailed examples and advanced usage.
+"""
+
+from typing import Tuple
+
+__version__: Tuple[int, int, int] = (0, 0, 2)
 
 
 __all__ = ["replace_me", "migrate"]

@@ -12,35 +12,88 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Migration functionality for replacing deprecated function calls.
+
+This module provides the core logic for analyzing Python source code,
+identifying calls to functions decorated with @replace_me, and replacing
+those calls with their suggested alternatives.
+
+The migration process involves:
+1. Parsing source code to find @replace_me decorated functions
+2. Extracting replacement expressions from function bodies
+3. Locating calls to deprecated functions
+4. Substituting actual arguments into replacement expressions
+5. Generating updated source code
+
+Example:
+    Given a source file with::
+
+        @replace_me()
+        def old_api(x, y):
+            return new_api(x, y, mode="legacy")
+
+        result = old_api(5, 10)
+
+    The migration will transform it to::
+
+        @replace_me()
+        def old_api(x, y):
+            return new_api(x, y, mode="legacy")
+
+        result = new_api(5, 10, mode="legacy")
+"""
+
 import ast
 import logging
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Callable, Any
+from .ast_utils import substitute_parameters
 
 
 class ReplaceInfo:
-    """Information about a function that should be replaced."""
+    """Information about a function that should be replaced.
+    
+    Attributes:
+        old_name: The name of the deprecated function.
+        replacement_expr: The replacement expression template with parameter
+            placeholders in the format {param_name}.
+    """
 
-    def __init__(self, old_name: str, replacement_expr: str):
+    def __init__(self, old_name: str, replacement_expr: str) -> None:
         self.old_name = old_name
         self.replacement_expr = replacement_expr
 
 
 class ImportInfo:
-    """Information about imported names."""
+    """Information about imported names.
+    
+    Attributes:
+        module: The module being imported from.
+        names: List of (name, alias) tuples for imported names.
+    """
 
-    def __init__(self, module: str, names: List[Tuple[str, Optional[str]]]):
+    def __init__(self, module: str, names: List[Tuple[str, Optional[str]]]) -> None:
         self.module = module
         self.names = names  # List of (name, alias) tuples
 
 
 class DeprecatedFunctionCollector(ast.NodeVisitor):
-    """Collects information about functions decorated with @replace_me."""
+    """Collects information about functions decorated with @replace_me.
+    
+    This AST visitor traverses Python source code to find:
+    - Functions decorated with @replace_me
+    - Import statements for resolving external deprecated functions
+    
+    Attributes:
+        replacements: Mapping from function names to their replacement info.
+        imports: List of import information for module resolution.
+    """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.replacements: Dict[str, ReplaceInfo] = {}
         self.imports: List[ImportInfo] = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        """Process function definitions to find @replace_me decorators."""
         for decorator in node.decorator_list:
             if self._is_replace_me_decorator(decorator):
                 # For the new format, extract replacement from function body
@@ -52,12 +105,14 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        """Collect import information for module resolution."""
         if node.module:
             names = [(alias.name, alias.asname) for alias in node.names]
             self.imports.append(ImportInfo(node.module, names))
         self.generic_visit(node)
 
     def _is_replace_me_decorator(self, decorator: ast.AST) -> bool:
+        """Check if a decorator is @replace_me."""
         if isinstance(decorator, ast.Name) and decorator.id == "replace_me":
             return True
         if isinstance(decorator, ast.Call):
@@ -76,7 +131,15 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
     def _extract_replacement_from_body(
         self, func_def: ast.FunctionDef
     ) -> Optional[str]:
-        """Extract replacement expression from function body."""
+        """Extract replacement expression from function body.
+        
+        Args:
+            func_def: The function definition AST node.
+            
+        Returns:
+            The replacement expression with parameter placeholders, or None
+            if no valid replacement can be extracted.
+        """
         if func_def.body and len(func_def.body) == 1:
             stmt = func_def.body[0]
             if isinstance(stmt, ast.Return) and stmt.value:
@@ -117,23 +180,23 @@ class FunctionCallReplacer(ast.NodeTransformer):
     def _create_replacement_node(
         self, original_call: ast.Call, replacement: ReplaceInfo
     ) -> ast.AST:
-        # Build a mapping of parameter names to their values
+        # Build a mapping of parameter names to their AST values
         param_map = self._build_param_map(original_call, replacement)
 
-        # Parse the replacement expression
-        replacement_expr = replacement.replacement_expr
+        # Parse the replacement expression with placeholders
+        # First, we need to convert {param} placeholders to valid Python identifiers
+        import re
+        temp_expr = replacement.replacement_expr
+        for param in param_map.keys():
+            temp_expr = temp_expr.replace(f"{{{param}}}", param)
 
-        # Replace placeholders in the expression
-        for param, value in param_map.items():
-            placeholder = f"{{{param}}}"
-            if placeholder in replacement_expr:
-                # Convert AST node back to source code
-                value_str = ast.unparse(value)
-                replacement_expr = replacement_expr.replace(placeholder, value_str)
-
-        # Parse the modified expression as an AST node
         try:
-            result = ast.parse(replacement_expr, mode="eval").body
+            # Parse the expression
+            replacement_ast = ast.parse(temp_expr, mode="eval").body
+            
+            # Substitute parameters using AST transformation
+            result = substitute_parameters(replacement_ast, param_map)
+            
             # Copy location information from original call
             ast.copy_location(result, original_call)
             return result

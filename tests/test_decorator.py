@@ -26,3 +26,34 @@ def test_replace_me():
         result = inc(3)
 
     assert result == 4
+
+
+def test_replace_me_with_substring_params():
+    """Test that parameter names that are substrings don't cause issues."""
+    @replace_me(since="1.0.0")
+    def process_range(n):
+        return list(range(n))
+    
+    with pytest.deprecated_call() as warning_info:
+        result = process_range(5)
+    
+    assert result == [0, 1, 2, 3, 4]
+    # Check that the warning message has correct substitution
+    warning_msg = str(warning_info.list[0].message)
+    assert "range(5)" in warning_msg  # Should be range(5), not ra5ge(5)
+
+
+def test_replace_me_with_complex_expression():
+    """Test replacement with complex expressions."""
+    @replace_me(since="2.0.0")
+    def old_api(data, timeout):
+        return {"data": data, "timeout": timeout * 1000, "mode": "legacy"}
+    
+    with pytest.deprecated_call() as warning_info:
+        result = old_api([1, 2, 3], 30)
+    
+    assert result == {"data": [1, 2, 3], "timeout": 30000, "mode": "legacy"}
+    warning_msg = str(warning_info.list[0].message)
+    # Should properly show the list and number in the warning
+    assert "[1, 2, 3]" in warning_msg
+    assert "30" in warning_msg

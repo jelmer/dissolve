@@ -12,8 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Command-line interface for the dissolve tool.
 
-def main(argv=None):
+This module provides the entry point for the dissolve CLI, which offers
+commands for:
+
+- `migrate`: Automatically replace deprecated function calls with their
+  suggested replacements in Python source files.
+- `remove`: Remove @replace_me decorators from source files, optionally
+  filtering by version.
+
+Run `dissolve --help` for more information on available commands and options.
+"""
+
+from typing import Optional, List
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Main entry point for the dissolve command-line interface.
+
+    Args:
+        argv: Command-line arguments. If None, uses sys.argv[1:].
+
+    Returns:
+        Exit code: 0 for success, 1 for errors.
+
+    Example:
+        Run from command line::
+
+            $ python -m dissolve migrate myfile.py
+            $ python -m dissolve remove myfile.py --all --write
+    """
     import argparse
     from .migrate import migrate_file_with_imports
     from .remove import remove_from_file
