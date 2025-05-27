@@ -19,9 +19,11 @@ import pytest
 
 def test_replace_me():
 
-    @replace_me("increment({})")
+    @replace_me
     def inc(x):
         return x + 1
+
+    inc(2)
 
     with pytest.deprecated_call():
         inc(2)
