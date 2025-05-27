@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import ast
-import sys
 from typing import Dict, List, Tuple, Optional
 
 
@@ -43,7 +42,8 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         for decorator in node.decorator_list:
             if self._is_replace_me_decorator(decorator):
-                replacement_expr = self._extract_replacement_expr(decorator)
+                # For the new format, extract replacement from function body
+                replacement_expr = self._extract_replacement_from_body(node)
                 if replacement_expr:
                     self.replacements[node.name] = ReplaceInfo(
                         node.name, replacement_expr
@@ -72,11 +72,24 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
                 return True
         return False
 
-    def _extract_replacement_expr(self, decorator: ast.AST) -> Optional[str]:
-        if isinstance(decorator, ast.Call) and decorator.args:
-            first_arg = decorator.args[0]
-            if isinstance(first_arg, ast.Constant):
-                return first_arg.value
+    def _extract_replacement_from_body(
+        self, func_def: ast.FunctionDef
+    ) -> Optional[str]:
+        """Extract replacement expression from function body."""
+        if func_def.body and len(func_def.body) == 1:
+            stmt = func_def.body[0]
+            if isinstance(stmt, ast.Return) and stmt.value:
+                # Create a template with parameter placeholders
+                replacement_expr = ast.unparse(stmt.value)
+
+                # Replace parameter names with placeholders
+                for arg in func_def.args.args:
+                    param_name = arg.arg
+                    replacement_expr = replacement_expr.replace(
+                        param_name, f"{{{param_name}}}"
+                    )
+
+                return replacement_expr
         return None
 
 
@@ -151,6 +164,56 @@ class FunctionCallReplacer(ast.NodeTransformer):
         return param_map
 
 
+def migrate_source(source: str, module_resolver=None) -> str:
+    """Migrate Python source code by inlining replace_me decorated functions.
+
+    Args:
+        source: Python source code to migrate
+        module_resolver: Optional callable that takes (module_name, file_dir) and returns module source
+
+    Returns:
+        The migrated source code
+    """
+    # Parse the source code
+    tree = ast.parse(source)
+
+    # First pass: collect imports and local deprecations
+    collector = DeprecatedFunctionCollector()
+    collector.visit(tree)
+
+    # If module_resolver is provided, analyze imported modules
+    if module_resolver:
+        for import_info in collector.imports:
+            try:
+                module_source = module_resolver(import_info.module, None)
+                if module_source:
+                    module_tree = ast.parse(module_source)
+
+                    # Collect deprecated functions from the module
+                    module_collector = DeprecatedFunctionCollector()
+                    module_collector.visit(module_tree)
+
+                    # Add imported deprecated functions to our replacements
+                    for name, alias in import_info.names:
+                        if name in module_collector.replacements:
+                            replacement_info = module_collector.replacements[name]
+                            # Use alias if provided, otherwise use original name
+                            key = alias if alias else name
+                            collector.replacements[key] = replacement_info
+            except BaseException as e:
+                logging.warning('Failed to resolve module "%s", ignoring: %s', import_info.module, e)
+
+    if not collector.replacements:
+        return source
+
+    # Second pass: replace function calls
+    replacer = FunctionCallReplacer(collector.replacements)
+    new_tree = replacer.visit(tree)
+
+    # Convert back to source code
+    return ast.unparse(new_tree)
+
+
 def migrate_file(filepath: str, write: bool = False) -> str:
     """Migrate a Python file by inlining replace_me decorated functions.
 
@@ -164,24 +227,9 @@ def migrate_file(filepath: str, write: bool = False) -> str:
     with open(filepath, "r") as f:
         source = f.read()
 
-    # Parse the source code
-    tree = ast.parse(source)
+    new_source = migrate_source(source)
 
-    # First pass: collect all functions decorated with @replace_me
-    collector = DeprecatedFunctionCollector()
-    collector.visit(tree)
-
-    if not collector.replacements:
-        return source
-
-    # Second pass: replace function calls
-    replacer = FunctionCallReplacer(collector.replacements)
-    new_tree = replacer.visit(tree)
-
-    # Convert back to source code
-    new_source = ast.unparse(new_tree)
-
-    if write:
+    if write and new_source != source:
         with open(filepath, "w") as f:
             f.write(new_source)
 
@@ -195,27 +243,15 @@ def migrate_file_with_imports(filepath: str, write: bool = False) -> str:
     information from imported modules.
     """
     import os
-    import importlib.util
 
     with open(filepath, "r") as f:
         source = f.read()
 
-    # Parse the source code
-    tree = ast.parse(source)
-
-    # First pass: collect imports and local deprecations
-    collector = DeprecatedFunctionCollector()
-    collector.visit(tree)
-
-    # Try to analyze imported modules for deprecated functions
     file_dir = os.path.dirname(os.path.abspath(filepath))
 
-    for import_info in collector.imports:
-        # Try to find and analyze the imported module
-        module_file = None
-
-        # Check if it's a local module (relative to current file)
-        module_path = import_info.module.replace(".", "/")
+    # Create a module resolver for local files
+    def local_module_resolver(module_name, _):
+        module_path = module_name.replace(".", "/")
         potential_paths = [
             os.path.join(file_dir, f"{module_path}.py"),
             os.path.join(file_dir, module_path, "__init__.py"),
@@ -223,42 +259,17 @@ def migrate_file_with_imports(filepath: str, write: bool = False) -> str:
 
         for path in potential_paths:
             if os.path.exists(path):
-                module_file = path
-                break
+                try:
+                    with open(path, "r") as f:
+                        return f.read()
+                except BaseException as e:
+                    logging.warning('Failed to read module "%s", ignoring: %s', path, e)
+                    continue
+        return None
 
-        if module_file:
-            try:
-                # Parse the imported module
-                with open(module_file, "r") as f:
-                    module_source = f.read()
-                module_tree = ast.parse(module_source)
+    new_source = migrate_source(source, module_resolver=local_module_resolver)
 
-                # Collect deprecated functions from the module
-                module_collector = DeprecatedFunctionCollector()
-                module_collector.visit(module_tree)
-
-                # Add imported deprecated functions to our replacements
-                for name, alias in import_info.names:
-                    if name in module_collector.replacements:
-                        replacement_info = module_collector.replacements[name]
-                        # Use alias if provided, otherwise use original name
-                        key = alias if alias else name
-                        collector.replacements[key] = replacement_info
-            except:
-                # If we can't analyze the module, skip it
-                pass
-
-    if not collector.replacements:
-        return source
-
-    # Second pass: replace function calls
-    replacer = FunctionCallReplacer(collector.replacements)
-    new_tree = replacer.visit(tree)
-
-    # Convert back to source code
-    new_source = ast.unparse(new_tree)
-
-    if write:
+    if write and new_source != source:
         with open(filepath, "w") as f:
             f.write(new_source)
 
