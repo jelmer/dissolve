@@ -102,7 +102,11 @@ def replace_me(since: Optional[Union[Tuple[int, ...], str]] = None) -> Callable[
             func_def = tree.body[0]
 
             # Get the function body (assuming single expression/return statement)
-            if isinstance(func_def, ast.FunctionDef) and func_def.body and len(func_def.body) == 1:
+            if (
+                isinstance(func_def, ast.FunctionDef)
+                and func_def.body
+                and len(func_def.body) == 1
+            ):
                 stmt = func_def.body[0]
                 if isinstance(stmt, ast.Return) and stmt.value:
                     # Get the expression being returned
@@ -110,7 +114,9 @@ def replace_me(since: Optional[Union[Tuple[int, ...], str]] = None) -> Callable[
 
                     # Build argument mapping
                     arg_map: dict[str, Any] = {}
-                    func_args = func_def.args if isinstance(func_def, ast.FunctionDef) else None
+                    func_args = (
+                        func_def.args if isinstance(func_def, ast.FunctionDef) else None
+                    )
 
                     # Map positional arguments
                     if func_args:

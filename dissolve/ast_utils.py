@@ -42,7 +42,9 @@ class ParameterSubstitutor(ast.NodeTransformer):
         return self.generic_visit(node)
 
 
-def substitute_parameters(expr_ast: ast.AST, param_map: Mapping[str, ast.AST]) -> ast.AST:
+def substitute_parameters(
+    expr_ast: ast.AST, param_map: Mapping[str, ast.AST]
+) -> ast.AST:
     """Substitute parameters in an AST expression.
 
     Args:

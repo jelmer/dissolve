@@ -45,7 +45,7 @@ Example:
 
 import ast
 import logging
-from typing import Dict, List, Tuple, Optional, Callable, Mapping
+from typing import Dict, List, Tuple, Optional, Callable
 from .ast_utils import substitute_parameters
 
 
