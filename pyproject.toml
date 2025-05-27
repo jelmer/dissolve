@@ -1,3 +1,41 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=61.2"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "dissolve"
+description = "Automatically replace use of deprecated APIs"
+readme = "README.rst"
+authors = [{name = "Jelmer Vernooĳ", email = "jelmer@jelmer.uk"}]
+license = {text = "Apachev2 or later"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Operating System :: POSIX",
+]
+urls = {Homepage = "https://github.com/jelmer/dissolve/"}
+requires-python = ">=3.10"
+dependencies = ["packaging"]
+dynamic = ["version"]
+
+[project.scripts]
+dissolve = "dissolve.__main__:main"
+
+[project.optional-dependencies]
+testing = ["pytest"]
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages]
+find = {namespaces = false}
+
+[tool.setuptools.dynamic]
+version = {attr = "dissolve.__version__"}
