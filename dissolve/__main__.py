@@ -16,6 +16,7 @@
 def main(argv=None):
     import argparse
     from .migrate import migrate_file_with_imports
+    from .remove import remove_from_file
 
     parser = argparse.ArgumentParser(
         description="Dissolve - Replace deprecated API usage"
@@ -34,6 +35,28 @@ def main(argv=None):
         help="Write changes back to files (default: print to stdout)",
     )
 
+    # Remove command
+    remove_parser = subparsers.add_parser(
+        "remove", help="Remove @replace_me decorators from Python files"
+    )
+    remove_parser.add_argument("files", nargs="+", help="Python files to process")
+    remove_parser.add_argument(
+        "-w",
+        "--write",
+        action="store_true",
+        help="Write changes back to files (default: print to stdout)",
+    )
+    remove_parser.add_argument(
+        "--before",
+        metavar="VERSION",
+        help="Remove decorators with version older than this",
+    )
+    remove_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Remove all @replace_me decorators regardless of version",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "migrate":
@@ -42,6 +65,26 @@ def main(argv=None):
                 result = migrate_file_with_imports(filepath, write=args.write)
                 if not args.write:
                     print(f"# Migrated: {filepath}")
+                    print(result)
+                    print()
+                else:
+                    print(f"Modified: {filepath}")
+            except Exception as e:
+                import sys
+
+                print(f"Error processing {filepath}: {e}", file=sys.stderr)
+                return 1
+    elif args.command == "remove":
+        for filepath in args.files:
+            try:
+                result = remove_from_file(
+                    filepath,
+                    before_version=args.before,
+                    remove_all=args.all,
+                    write=args.write,
+                )
+                if not args.write:
+                    print(f"# Removed decorators from: {filepath}")
                     print(result)
                     print()
                 else:

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import ast
+import logging
 from typing import Dict, List, Tuple, Optional
 
 
@@ -201,7 +202,9 @@ def migrate_source(source: str, module_resolver=None) -> str:
                             key = alias if alias else name
                             collector.replacements[key] = replacement_info
             except BaseException as e:
-                logging.warning('Failed to resolve module "%s", ignoring: %s', import_info.module, e)
+                logging.warning(
+                    'Failed to resolve module "%s", ignoring: %s', import_info.module, e
+                )
 
     if not collector.replacements:
         return source
