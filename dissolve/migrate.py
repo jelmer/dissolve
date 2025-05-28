@@ -47,6 +47,7 @@ import ast
 import logging
 from collections.abc import Callable
 
+from .ast_helpers import is_replace_me_decorator
 from .ast_utils import substitute_parameters
 
 
@@ -96,7 +97,7 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """Process function definitions to find @replace_me decorators."""
         for decorator in node.decorator_list:
-            if self._is_replace_me_decorator(decorator):
+            if is_replace_me_decorator(decorator):
                 # For the new format, extract replacement from function body
                 replacement_expr = self._extract_replacement_from_body(node)
                 if replacement_expr:
@@ -111,23 +112,6 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
             names = [(alias.name, alias.asname) for alias in node.names]
             self.imports.append(ImportInfo(node.module, names))
         self.generic_visit(node)
-
-    def _is_replace_me_decorator(self, decorator: ast.AST) -> bool:
-        """Check if a decorator is @replace_me."""
-        if isinstance(decorator, ast.Name) and decorator.id == "replace_me":
-            return True
-        if isinstance(decorator, ast.Call):
-            if (
-                isinstance(decorator.func, ast.Name)
-                and decorator.func.id == "replace_me"
-            ):
-                return True
-            if (
-                isinstance(decorator.func, ast.Attribute)
-                and decorator.func.attr == "replace_me"
-            ):
-                return True
-        return False
 
     def _extract_replacement_from_body(self, func_def: ast.FunctionDef) -> str | None:
         """Extract replacement expression from function body.
