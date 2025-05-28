@@ -34,9 +34,9 @@ def old_func(x, y):
     pass
         """
         result = check_replacements(source)
-        assert not result.success
+        assert result.success
         assert result.checked_functions == ["old_func"]
-        assert "cannot be processed by migrate" in result.errors[0]
+        assert result.errors == []
 
     def test_multiple_statements(self):
         source = """
@@ -48,7 +48,8 @@ def old_func(x, y):
         result = check_replacements(source)
         assert not result.success
         assert result.checked_functions == ["old_func"]
-        assert "cannot be processed by migrate" in result.errors[0]
+        assert "cannot be processed" in result.errors[0]
+        assert "Function body is too complex" in result.errors[0]
 
     def test_no_return_statement(self):
         source = """
@@ -59,7 +60,8 @@ def old_func(x, y):
         result = check_replacements(source)
         assert not result.success
         assert result.checked_functions == ["old_func"]
-        assert "cannot be processed by migrate" in result.errors[0]
+        assert "cannot be processed" in result.errors[0]
+        assert "Function body is too complex" in result.errors[0]
 
     def test_empty_return(self):
         source = """
@@ -70,7 +72,8 @@ def old_func(x, y):
         result = check_replacements(source)
         assert not result.success
         assert result.checked_functions == ["old_func"]
-        assert "cannot be processed by migrate" in result.errors[0]
+        assert "cannot be processed" in result.errors[0]
+        assert "Function body is too complex" in result.errors[0]
 
     def test_no_replace_me_functions(self):
         source = """

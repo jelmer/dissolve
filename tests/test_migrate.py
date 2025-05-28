@@ -210,7 +210,7 @@ x = value()
         assert "x = 42" in result
 
     def test_non_simple_function(self):
-        # Test that functions with complex bodies are not replaced
+        # Test that simple multi-statement functions (assignment + return) are now supported
         source = """
 from dissolve import replace_me
 
@@ -222,8 +222,8 @@ def complex_func(x):
 result = complex_func(5)
 """
         result = migrate_source(source.strip())
-        # Should keep the original call when function body is not simple
-        assert "complex_func(5)" in result
+        # Should now inline simple assignment + return patterns
+        assert "(5 + 1) * 2" in result or "result = (5 + 1) * 2" in result
 
     def test_empty_source(self):
         result = migrate_source("")
@@ -374,3 +374,42 @@ d = old_func(4)
         assert "old_func(2)" in result
         assert "c = new_func(3 * 2)" in result or "c = new_func((3 * 2))" in result
         assert "old_func(4)" in result
+
+    def test_empty_function_bodies(self):
+        source = """
+@replace_me()
+def empty_func():
+    pass
+
+@replace_me()
+def func_with_docstring():
+    \"\"\"This function does nothing.\"\"\"
+    pass
+
+@replace_me()
+def func_with_only_docstring():
+    \"\"\"This function only has a docstring.\"\"\"
+
+result1 = empty_func()
+result2 = func_with_docstring()
+result3 = func_with_only_docstring()
+        """
+        expected = """
+@replace_me()
+def empty_func():
+    pass
+
+@replace_me()
+def func_with_docstring():
+    \"\"\"This function does nothing.\"\"\"
+    pass
+
+@replace_me()
+def func_with_only_docstring():
+    \"\"\"This function only has a docstring.\"\"\"
+result1 = None
+result2 = None
+result3 = None
+        """
+        result = migrate_source(source.strip())
+        assert result.strip() == expected.strip()
