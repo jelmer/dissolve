@@ -216,7 +216,7 @@ result = regular_function(5)
             sys.stdout = old_stdout
 
         assert exit_code == 0 or exit_code is None
-        assert "no removable decorators" in output
+        assert "up to date" in output
     finally:
         os.unlink(temp_path)
 
@@ -249,7 +249,7 @@ result = old_func(5)
             sys.stdout = old_stdout
 
         assert exit_code == 1
-        assert "has removable decorators" in output
+        assert "needs decorator removal" in output
     finally:
         os.unlink(temp_path)
 
@@ -285,7 +285,7 @@ def newer_func(x):
 
         # Should detect removable decorators (0.5.0 < 1.0.0)
         assert exit_code == 1
-        assert "has removable decorators" in output
+        assert "needs decorator removal" in output
     finally:
         os.unlink(temp_path)
 

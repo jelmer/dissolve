@@ -25,6 +25,79 @@ commands for:
 Run `dissolve --help` for more information on available commands and options.
 """
 
+import ast
+from collections.abc import Callable
+
+
+def _process_files_common(
+    files: list[str],
+    process_func: Callable[[str], tuple[str, str]],
+    check: bool,
+    write: bool,
+    operation_name: str,
+    *,
+    use_ast_comparison: bool = False,
+) -> int:
+    """Common logic for processing files with check/write modes.
+
+    Args:
+        files: List of file paths to process
+        process_func: Function to process each file, returns (original, result)
+        check: Whether to run in check mode
+        write: Whether to write changes back
+        operation_name: Name of operation for error messages
+        use_ast_comparison: If True, compare AST structure instead of text for check mode
+
+    Returns:
+        Exit code: 0 for success, 1 for errors or changes needed in check mode
+    """
+    import sys
+
+    needs_changes = False
+    for filepath in files:
+        try:
+            original, result = process_func(filepath)
+
+            # Determine if changes are needed
+            if use_ast_comparison and check:
+                # Compare AST structure for semantic changes (ignores formatting)
+                try:
+                    original_tree = ast.parse(original)
+                    result_tree = ast.parse(result)
+                    has_changes = ast.dump(original_tree) != ast.dump(result_tree)
+                except SyntaxError:
+                    # If parsing fails, fall back to text comparison
+                    has_changes = result != original
+            else:
+                has_changes = result != original
+
+            if check:
+                # Check mode: just report if changes are needed
+                if has_changes:
+                    print(f"{filepath}: needs {operation_name}")
+                    needs_changes = True
+                else:
+                    print(f"{filepath}: up to date")
+            elif write:
+                # Write mode: update file if changed
+                if has_changes:
+                    with open(filepath, "w") as f:
+                        f.write(result)
+                    print(f"Modified: {filepath}")
+                else:
+                    print(f"Unchanged: {filepath}")
+            else:
+                # Default: print to stdout
+                print(f"# {operation_name.title()}: {filepath}")
+                print(result)
+                print()
+        except Exception as e:
+            print(f"Error processing {filepath}: {e}", file=sys.stderr)
+            return 1
+
+    # In check mode, exit with code 1 if any files need changes
+    return 1 if check and needs_changes else 0
+
 
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the dissolve command-line interface.
@@ -42,7 +115,6 @@ def main(argv: list[str] | None = None) -> int:
             $ python -m dissolve remove myfile.py --all --write
     """
     import argparse
-    import ast
 
     from .migrate import migrate_file_with_imports
     from .remove import remove_from_file
@@ -102,93 +174,38 @@ def main(argv: list[str] | None = None) -> int:
         if args.check and args.write:
             parser.error("--check and --write cannot be used together")
 
-        needs_migration = False
-        for filepath in args.files:
-            try:
-                with open(filepath) as f:
-                    original = f.read()
-                result = migrate_file_with_imports(filepath, write=False)
+        def migrate_processor(filepath: str) -> tuple[str, str]:
+            with open(filepath) as f:
+                original = f.read()
+            result = migrate_file_with_imports(filepath, write=False)
+            return original, result
 
-                if args.check:
-                    # Check mode: just report if changes are needed
-                    if result != original:
-                        print(f"{filepath}: needs migration")
-                        needs_migration = True
-                    else:
-                        print(f"{filepath}: up to date")
-                elif args.write:
-                    # Write mode: update file if changed
-                    if result != original:
-                        with open(filepath, "w") as f:
-                            f.write(result)
-                        print(f"Modified: {filepath}")
-                    else:
-                        print(f"Unchanged: {filepath}")
-                else:
-                    # Default: print to stdout
-                    print(f"# Migrated: {filepath}")
-                    print(result)
-                    print()
-            except Exception as e:
-                import sys
-
-                print(f"Error processing {filepath}: {e}", file=sys.stderr)
-                return 1
-
-        # In check mode, exit with code 1 if any files need migration
-        if args.check and needs_migration:
-            return 1
+        return _process_files_common(
+            args.files, migrate_processor, args.check, args.write, "migration"
+        )
     elif args.command == "remove":
         if args.check and args.write:
             parser.error("--check and --write cannot be used together")
 
-        needs_removal = False
-        for filepath in args.files:
-            try:
-                with open(filepath) as f:
-                    original = f.read()
-                result = remove_from_file(
-                    filepath,
-                    before_version=args.before,
-                    remove_all=args.all,
-                    write=False,
-                )
+        def remove_processor(filepath: str) -> tuple[str, str]:
+            with open(filepath) as f:
+                original = f.read()
+            result = remove_from_file(
+                filepath,
+                before_version=args.before,
+                remove_all=args.all,
+                write=False,
+            )
+            return original, result
 
-                if args.check:
-                    # Check mode: just report if changes are needed
-                    # Note: AST transformations may normalize whitespace, so we need to
-                    # check if there are actual semantic changes beyond formatting
-                    original_tree = ast.parse(original)
-                    result_tree = ast.parse(result)
-
-                    # Simple check: compare AST dumps (this ignores formatting)
-                    if ast.dump(original_tree) != ast.dump(result_tree):
-                        print(f"{filepath}: has removable decorators")
-                        needs_removal = True
-                    else:
-                        print(f"{filepath}: no removable decorators")
-                elif args.write:
-                    # Write mode: update file if changed
-                    if result != original:
-                        with open(filepath, "w") as f:
-                            f.write(result)
-                        print(f"Modified: {filepath}")
-                    else:
-                        print(f"Unchanged: {filepath}")
-                else:
-                    # Default: print to stdout
-                    print(f"# Removed decorators from: {filepath}")
-                    print(result)
-                    print()
-            except Exception as e:
-                import sys
-
-                print(f"Error processing {filepath}: {e}", file=sys.stderr)
-                return 1
-
-        # In check mode, exit with code 1 if any files need removal
-        if args.check and needs_removal:
-            return 1
+        return _process_files_common(
+            args.files,
+            remove_processor,
+            args.check,
+            args.write,
+            "decorator removal",
+            use_ast_comparison=True,
+        )
     else:
         parser.print_help()
         return 1
