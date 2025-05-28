@@ -44,13 +44,11 @@ Basic Usage:
 See the documentation for more detailed examples and advanced usage.
 """
 
-from typing import Tuple
-
-__version__: Tuple[int, int, int] = (0, 0, 2)
+__version__: tuple[int, int, int] = (0, 1, 0)
 
 
-__all__ = ["replace_me", "migrate"]
+__all__ = ["migrate", "replace_me"]
 
 
-from .decorators import replace_me
 from . import migrate
+from .decorators import replace_me

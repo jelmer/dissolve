@@ -45,7 +45,8 @@ Example:
 
 import ast
 import logging
-from typing import Dict, List, Tuple, Optional, Callable
+from collections.abc import Callable
+
 from .ast_utils import substitute_parameters
 
 
@@ -71,7 +72,7 @@ class ImportInfo:
         names: List of (name, alias) tuples for imported names.
     """
 
-    def __init__(self, module: str, names: List[Tuple[str, Optional[str]]]) -> None:
+    def __init__(self, module: str, names: list[tuple[str, str | None]]) -> None:
         self.module = module
         self.names = names  # List of (name, alias) tuples
 
@@ -89,8 +90,8 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
     """
 
     def __init__(self) -> None:
-        self.replacements: Dict[str, ReplaceInfo] = {}
-        self.imports: List[ImportInfo] = []
+        self.replacements: dict[str, ReplaceInfo] = {}
+        self.imports: list[ImportInfo] = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """Process function definitions to find @replace_me decorators."""
@@ -130,7 +131,7 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
 
     def _extract_replacement_from_body(
         self, func_def: ast.FunctionDef
-    ) -> Optional[str]:
+    ) -> str | None:
         """Extract replacement expression from function body.
 
         Args:
@@ -168,7 +169,7 @@ class FunctionCallReplacer(ast.NodeTransformer):
         replacements: Mapping from function names to their replacement info.
     """
 
-    def __init__(self, replacements: Dict[str, ReplaceInfo]) -> None:
+    def __init__(self, replacements: dict[str, ReplaceInfo]) -> None:
         self.replacements = replacements
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
@@ -181,7 +182,7 @@ class FunctionCallReplacer(ast.NodeTransformer):
             return self._create_replacement_node(node, replacement)
         return node
 
-    def _get_function_name(self, node: ast.Call) -> Optional[str]:
+    def _get_function_name(self, node: ast.Call) -> str | None:
         """Extract the function name from a Call node."""
         if isinstance(node.func, ast.Name):
             return node.func.id
@@ -225,7 +226,7 @@ class FunctionCallReplacer(ast.NodeTransformer):
 
     def _build_param_map(
         self, call: ast.Call, replacement: ReplaceInfo
-    ) -> Dict[str, ast.expr]:
+    ) -> dict[str, ast.expr]:
         """Build a mapping of parameter names to their AST values.
 
         Args:
@@ -258,7 +259,7 @@ class FunctionCallReplacer(ast.NodeTransformer):
 
 def migrate_source(
     source: str,
-    module_resolver: Optional[Callable[[str, Optional[str]], Optional[str]]] = None,
+    module_resolver: Callable[[str, str | None], str | None] | None = None,
 ) -> str:
     """Migrate Python source code by inlining replace_me decorated functions.
 
@@ -348,7 +349,7 @@ def migrate_file(filepath: str, write: bool = False) -> str:
     Raises:
         IOError: If the file cannot be read or written.
     """
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         source = f.read()
 
     new_source = migrate_source(source)
@@ -397,13 +398,13 @@ def migrate_file_with_imports(filepath: str, write: bool = False) -> str:
     """
     import os
 
-    with open(filepath, "r") as f:
+    with open(filepath) as f:
         source = f.read()
 
     file_dir = os.path.dirname(os.path.abspath(filepath))
 
     # Create a module resolver for local files
-    def local_module_resolver(module_name: str, _: Optional[str]) -> Optional[str]:
+    def local_module_resolver(module_name: str, _: str | None) -> str | None:
         module_path = module_name.replace(".", "/")
         potential_paths = [
             os.path.join(file_dir, f"{module_path}.py"),
@@ -413,7 +414,7 @@ def migrate_file_with_imports(filepath: str, write: bool = False) -> str:
         for path in potential_paths:
             if os.path.exists(path):
                 try:
-                    with open(path, "r") as f:
+                    with open(path) as f:
                         return f.read()
                 except BaseException as e:
                     logging.warning('Failed to read module "%s", ignoring: %s', path, e)

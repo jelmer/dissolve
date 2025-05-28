@@ -13,8 +13,9 @@
 # limitations under the License.
 
 
-from dissolve import replace_me
 import pytest
+
+from dissolve import replace_me
 
 
 def test_replace_me():

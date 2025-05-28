@@ -32,13 +32,14 @@ Example:
     suggesting to use `new_api(5, 10, default=True)` instead.
 """
 
-from typing import Optional, Union, Tuple, Callable, TypeVar, Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 # Type variable for preserving function signatures
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def replace_me(since: Optional[Union[Tuple[int, ...], str]] = None) -> Callable[[F], F]:
+def replace_me(since: tuple[int, ...] | str | None = None) -> Callable[[F], F]:
     """Mark a function as deprecated and suggest its replacement.
 
     This decorator analyzes the decorated function's return statement to
@@ -87,10 +88,11 @@ def replace_me(since: Optional[Union[Tuple[int, ...], str]] = None) -> Callable[
           substituted with actual argument values when generating the warning.
         - The original function is still executed after emitting the warning.
     """
-    import warnings
     import ast
     import inspect
     import textwrap
+    import warnings
+
     from .ast_utils import substitute_in_expression
 
     def function_decorator(callable: F) -> F:
@@ -133,13 +135,11 @@ def replace_me(since: Optional[Union[Tuple[int, ...], str]] = None) -> Callable[
 
                     if since:
                         w = DeprecationWarning(
-                            "%r has been deprecated since %s; use '%s' instead"
-                            % (callable, since, evaluated)
+                            f"{callable!r} has been deprecated since {since}; use '{evaluated}' instead"
                         )
                     else:
                         w = DeprecationWarning(
-                            "%r has been deprecated; use '%s' instead"
-                            % (callable, evaluated)
+                            f"{callable!r} has been deprecated; use '{evaluated}' instead"
                         )
                     warnings.warn(w, stacklevel=2)
 

@@ -28,9 +28,6 @@ dynamic = ["version"]
 [project.scripts]
 dissolve = "dissolve.__main__:main"
 
-[project.optional-dependencies]
-testing = ["pytest"]
-
 [tool.setuptools]
 include-package-data = false
 
@@ -39,3 +36,50 @@ find = {namespaces = false}
 
 [tool.setuptools.dynamic]
 version = {attr = "dissolve.__version__"}
+
+[project.optional-dependencies]
+testing = ["pytest"]
+dev = [
+    "ruff==0.11.11",
+    "mypy==1.15.0"
+]
+
+[tool.ruff.lint]
+select = [
+    "ANN",
+    "D",
+    "E",
+    "F",
+    "I",
+    "PIE",
+    "UP",
+    "RSE",
+    "RUF",
+]
+ignore = [
+    "ANN001",
+    "ANN002",
+    "ANN003",
+    "ANN201",
+    "ANN202",
+    "ANN204",
+    "ANN205",
+    "ANN206",
+    "ANN401",
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D104",
+    "D105",
+    "D107",
+    "D204",
+    "D205",
+    "D417",
+    "E501",  # line too long
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+

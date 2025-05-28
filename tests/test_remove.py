@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import tempfile
 import os
+import tempfile
+
 from dissolve.remove import remove_decorators, remove_from_file
 
 
@@ -131,14 +132,14 @@ def old_func(x):
         assert "@replace_me" not in result
 
         # Original file should be unchanged
-        with open(temp_path, "r") as f:
+        with open(temp_path) as f:
             assert f.read() == source
 
         # Test with writing
         remove_from_file(temp_path, remove_all=True, write=True)
 
         # File should be modified
-        with open(temp_path, "r") as f:
+        with open(temp_path) as f:
             modified_content = f.read()
             assert "@replace_me" not in modified_content
             assert "def old_func(x):" in modified_content

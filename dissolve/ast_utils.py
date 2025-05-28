@@ -15,7 +15,8 @@
 """AST utilities for parameter substitution in expressions."""
 
 import ast
-from typing import Dict, Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 
 class ParameterSubstitutor(ast.NodeTransformer):
@@ -70,7 +71,7 @@ def create_ast_from_value(value: Any) -> ast.AST:
     return ast.Constant(value=value)
 
 
-def substitute_in_expression(expr_str: str, param_map: Dict[str, Any]) -> str:
+def substitute_in_expression(expr_str: str, param_map: dict[str, Any]) -> str:
     """Substitute parameters in a string expression using AST.
 
     Args:

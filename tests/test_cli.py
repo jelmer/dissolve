@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import tempfile
 import os
-from dissolve.__main__ import main
-from io import StringIO
 import sys
+import tempfile
+from io import StringIO
+
+from dissolve.__main__ import main
 
 
 def test_migrate_check_no_changes_needed():
@@ -185,7 +186,7 @@ result = regular_function(5)
         assert "Unchanged:" in output
 
         # File should remain the same
-        with open(temp_path, "r") as f:
+        with open(temp_path) as f:
             assert f.read() == source
     finally:
         os.unlink(temp_path)

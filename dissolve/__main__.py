@@ -25,10 +25,9 @@ commands for:
 Run `dissolve --help` for more information on available commands and options.
 """
 
-from typing import Optional, List
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the dissolve command-line interface.
 
     Args:
@@ -45,6 +44,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     """
     import argparse
     import ast
+
     from .migrate import migrate_file_with_imports
     from .remove import remove_from_file
 
@@ -106,7 +106,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         needs_migration = False
         for filepath in args.files:
             try:
-                with open(filepath, "r") as f:
+                with open(filepath) as f:
                     original = f.read()
                 result = migrate_file_with_imports(filepath, write=False)
 
@@ -146,7 +146,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         needs_removal = False
         for filepath in args.files:
             try:
-                with open(filepath, "r") as f:
+                with open(filepath) as f:
                     original = f.read()
                 result = remove_from_file(
                     filepath,
