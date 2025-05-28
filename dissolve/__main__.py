@@ -26,7 +26,6 @@ Run `dissolve --help` for more information on available commands and options.
 """
 
 
-
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the dissolve command-line interface.
 

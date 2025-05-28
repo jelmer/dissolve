@@ -129,9 +129,7 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
                 return True
         return False
 
-    def _extract_replacement_from_body(
-        self, func_def: ast.FunctionDef
-    ) -> str | None:
+    def _extract_replacement_from_body(self, func_def: ast.FunctionDef) -> str | None:
         """Extract replacement expression from function body.
 
         Args:
