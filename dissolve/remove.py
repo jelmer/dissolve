@@ -37,6 +37,8 @@ import ast
 
 from packaging import version
 
+from .ast_helpers import is_replace_me_decorator
+
 
 class ReplaceRemover(ast.NodeTransformer):
     """Remove @replace_me decorators from function definitions.
@@ -95,7 +97,7 @@ class ReplaceRemover(ast.NodeTransformer):
         Returns:
             True if the decorator should be removed, False otherwise.
         """
-        if not self._is_replace_me_decorator(decorator):
+        if not is_replace_me_decorator(decorator):
             return False
 
         if self.remove_all:
@@ -116,30 +118,6 @@ class ReplaceRemover(ast.NodeTransformer):
         except Exception:
             # If version parsing fails, don't remove
             return False
-
-    def _is_replace_me_decorator(self, decorator: ast.AST) -> bool:
-        """Check if a decorator is @replace_me.
-
-        Args:
-            decorator: The decorator AST node to check.
-
-        Returns:
-            True if this is a @replace_me decorator, False otherwise.
-        """
-        if isinstance(decorator, ast.Name) and decorator.id == "replace_me":
-            return True
-        if isinstance(decorator, ast.Call):
-            if (
-                isinstance(decorator.func, ast.Name)
-                and decorator.func.id == "replace_me"
-            ):
-                return True
-            if (
-                isinstance(decorator.func, ast.Attribute)
-                and decorator.func.attr == "replace_me"
-            ):
-                return True
-        return False
 
     def _extract_version(self, decorator: ast.AST) -> str | None:
         """Extract the 'since' version from a @replace_me decorator.
