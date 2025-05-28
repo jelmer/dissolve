@@ -1,0 +1,25 @@
+* support for Class Methods and Properties
+
+* Add Configuration File Support
+
+  Create a configuration system that allows users to define migration rules:
+
+  # pyproject.toml or dissolve.toml
+  [tool.dissolve]
+  backup = true
+  dry_run = false
+  ignore_files = ["**/test_*.py", "**/vendor/**"]
+
+  [[tool.dissolve.migrations]]
+  from = "mylib.old_func"
+  to = "mylib.new_func"
+  since = "2.0.0"
+
+* Interactive Mode
+
+  Add an interactive migration mode:
+
+  $ dissolve migrate . --interactive
+  Found deprecated call: old_func(x=5, y=10)
+  Replace with: new_func(5, 10)?
+  [Y]es / [N]o / [A]ll / [Q]uit:
