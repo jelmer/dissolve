@@ -1,10 +1,1 @@
 * support for Class Methods and Properties
-
-* Interactive Mode
-
-  Add an interactive migration mode:
-
-  $ dissolve migrate . --interactive
-  Found deprecated call: old_func(x=5, y=10)
-  Replace with: new_func(5, 10)?
-  [Y]es / [N]o / [A]ll / [Q]uit:

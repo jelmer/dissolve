@@ -46,6 +46,7 @@ Example:
 import ast
 import logging
 from collections.abc import Callable
+from typing import Literal
 
 from .ast_helpers import is_replace_me_decorator
 from .ast_utils import substitute_parameters
@@ -239,9 +240,90 @@ class FunctionCallReplacer(ast.NodeTransformer):
         return param_map
 
 
+class InteractiveFunctionCallReplacer(FunctionCallReplacer):
+    """Interactive version of FunctionCallReplacer that prompts for user confirmation.
+
+    This class extends FunctionCallReplacer to ask for user confirmation
+    before each replacement. It supports options to replace all or quit.
+
+    Attributes:
+        replacements: Mapping from function names to their replacement info.
+        replace_all: Whether to automatically replace all occurrences.
+        prompt_func: Function to prompt user for confirmation.
+    """
+
+    def __init__(
+        self,
+        replacements: dict[str, ReplaceInfo],
+        prompt_func: Callable[[str, str], Literal["y", "n", "a", "q"]] | None = None,
+    ) -> None:
+        super().__init__(replacements)
+        self.replace_all = False
+        self.quit = False
+        self.prompt_func = prompt_func or self._default_prompt
+
+    def _default_prompt(
+        self, old_call: str, new_call: str
+    ) -> Literal["y", "n", "a", "q"]:
+        """Default interactive prompt for replacement confirmation."""
+        print(f"\nFound deprecated call: {old_call}")
+        print(f"Replace with: {new_call}?")
+
+        while True:
+            response = input("[Y]es / [N]o / [A]ll / [Q]uit: ").lower().strip()
+            if response in ["y", "yes"]:
+                return "y"
+            elif response in ["n", "no"]:
+                return "n"
+            elif response in ["a", "all"]:
+                return "a"
+            elif response in ["q", "quit"]:
+                return "q"
+            else:
+                print("Invalid input. Please enter Y, N, A, or Q.")
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        """Visit Call nodes and interactively replace deprecated function calls."""
+        if self.quit:
+            return node
+
+        self.generic_visit(node)
+
+        func_name = self._get_function_name(node)
+        if func_name and func_name in self.replacements:
+            replacement = self.replacements[func_name]
+
+            # Get string representations of old and new calls
+            old_call_str = ast.unparse(node)
+            replacement_node = self._create_replacement_node(node, replacement)
+            new_call_str = ast.unparse(replacement_node)
+
+            # Check if we should replace
+            if self.replace_all:
+                return replacement_node
+
+            # Prompt user
+            response = self.prompt_func(old_call_str, new_call_str)
+
+            if response == "y":
+                return replacement_node
+            elif response == "a":
+                self.replace_all = True
+                return replacement_node
+            elif response == "q":
+                self.quit = True
+                return node
+            else:  # response == "n"
+                return node
+
+        return node
+
+
 def migrate_source(
     source: str,
     module_resolver: Callable[[str, str | None], str | None] | None = None,
+    interactive: bool = False,
+    prompt_func: Callable[[str, str], Literal["y", "n", "a", "q"]] | None = None,
 ) -> str:
     """Migrate Python source code by inlining replace_me decorated functions.
 
@@ -254,6 +336,8 @@ def migrate_source(
         module_resolver: Optional callable that takes (module_name, file_dir)
             and returns the module's source code as a string, or None if the
             module cannot be resolved.
+        interactive: Whether to prompt for confirmation before each replacement.
+        prompt_func: Optional custom prompt function for interactive mode.
 
     Returns:
         The migrated source code with deprecated function calls replaced.
@@ -271,6 +355,13 @@ def migrate_source(
 
             migrated = migrate_source(source)
             # result = new_func(5 * 2)
+
+        Interactive migration::
+
+            migrated = migrate_source(source, interactive=True)
+            # Will prompt: Found deprecated call: old_func(5)
+            # Replace with: new_func(5 * 2)?
+            # [Y]es / [N]o / [A]ll / [Q]uit:
     """
     # Parse the source code
     tree = ast.parse(source)
@@ -307,7 +398,12 @@ def migrate_source(
         return source
 
     # Second pass: replace function calls
-    replacer = FunctionCallReplacer(collector.replacements)
+    if interactive:
+        replacer: FunctionCallReplacer = InteractiveFunctionCallReplacer(
+            collector.replacements, prompt_func
+        )
+    else:
+        replacer = FunctionCallReplacer(collector.replacements)
     new_tree = replacer.visit(tree)
 
     # Convert back to source code
@@ -343,7 +439,12 @@ def migrate_file(filepath: str, write: bool = False) -> str:
     return new_source
 
 
-def migrate_file_with_imports(filepath: str, write: bool = False) -> str:
+def migrate_file_with_imports(
+    filepath: str,
+    write: bool = False,
+    interactive: bool = False,
+    prompt_func: Callable[[str, str], Literal["y", "n", "a", "q"]] | None = None,
+) -> str:
     """Migrate a Python file, considering imported deprecated functions.
 
     This enhanced version analyzes imports and attempts to fetch replacement
@@ -354,6 +455,8 @@ def migrate_file_with_imports(filepath: str, write: bool = False) -> str:
     Args:
         filepath: Path to the Python file to migrate.
         write: Whether to write changes back to the file.
+        interactive: Whether to prompt for confirmation before each replacement.
+        prompt_func: Optional custom prompt function for interactive mode.
 
     Returns:
         The migrated source code.
@@ -403,7 +506,12 @@ def migrate_file_with_imports(filepath: str, write: bool = False) -> str:
                     continue
         return None
 
-    new_source = migrate_source(source, module_resolver=local_module_resolver)
+    new_source = migrate_source(
+        source,
+        module_resolver=local_module_resolver,
+        interactive=interactive,
+        prompt_func=prompt_func,
+    )
 
     if write and new_source != source:
         with open(filepath, "w") as f:
