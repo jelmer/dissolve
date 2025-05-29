@@ -140,6 +140,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Check if files need migration without modifying them (exit 1 if changes needed)",
     )
+    migrate_parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Interactively confirm each replacement before applying",
+    )
 
     # Remove command
     remove_parser = subparsers.add_parser(
@@ -173,11 +178,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "migrate":
         if args.check and args.write:
             parser.error("--check and --write cannot be used together")
+        if args.interactive and args.check:
+            parser.error("--interactive and --check cannot be used together")
 
         def migrate_processor(filepath: str) -> tuple[str, str]:
             with open(filepath) as f:
                 original = f.read()
-            result = migrate_file_with_imports(filepath, write=False)
+            result = migrate_file_with_imports(
+                filepath, write=False, interactive=args.interactive
+            )
             return original, result
 
         return _process_files_common(

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Literal
+
 from dissolve.migrate import migrate_source
 
 
@@ -236,3 +238,139 @@ print(normal_func(5))
 """
         result = migrate_source(source.strip())
         assert result == source.strip()
+
+
+class TestInteractiveMigration:
+    def test_interactive_yes(self):
+        """Test interactive mode with 'yes' responses."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def old_func(x):
+    return new_func(x * 2)
+
+result = old_func(5)
+"""
+        responses = ["y"]
+        response_iter = iter(responses)
+
+        def mock_prompt(old_call: str, new_call: str) -> Literal["y", "n", "a", "q"]:
+            return next(response_iter)
+
+        result = migrate_source(
+            source.strip(), interactive=True, prompt_func=mock_prompt
+        )
+        assert (
+            "result = new_func(5 * 2)" in result
+            or "result = new_func((5 * 2))" in result
+        )
+
+    def test_interactive_no(self):
+        """Test interactive mode with 'no' responses."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def old_func(x):
+    return new_func(x * 2)
+
+result = old_func(5)
+"""
+        responses = ["n"]
+        response_iter = iter(responses)
+
+        def mock_prompt(old_call: str, new_call: str) -> Literal["y", "n", "a", "q"]:
+            return next(response_iter)
+
+        result = migrate_source(
+            source.strip(), interactive=True, prompt_func=mock_prompt
+        )
+        assert "old_func(5)" in result
+        assert (
+            "new_func" not in result or "@replace_me()" in result
+        )  # new_func only in decorator
+
+    def test_interactive_all(self):
+        """Test interactive mode with 'all' response."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def old_func(x):
+    return new_func(x * 2)
+
+a = old_func(1)
+b = old_func(2)
+c = old_func(3)
+"""
+        responses = ["a"]  # Only need one response for 'all'
+        response_iter = iter(responses)
+
+        def mock_prompt(old_call: str, new_call: str) -> Literal["y", "n", "a", "q"]:
+            return next(response_iter)
+
+        result = migrate_source(
+            source.strip(), interactive=True, prompt_func=mock_prompt
+        )
+        # All calls should be replaced
+        assert "a = new_func(1 * 2)" in result or "a = new_func((1 * 2))" in result
+        assert "b = new_func(2 * 2)" in result or "b = new_func((2 * 2))" in result
+        assert "c = new_func(3 * 2)" in result or "c = new_func((3 * 2))" in result
+
+    def test_interactive_quit(self):
+        """Test interactive mode with 'quit' response."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def old_func(x):
+    return new_func(x * 2)
+
+a = old_func(1)
+b = old_func(2)
+c = old_func(3)
+"""
+        responses = ["y", "q"]  # Replace first, quit on second
+        response_iter = iter(responses)
+
+        def mock_prompt(old_call: str, new_call: str) -> Literal["y", "n", "a", "q"]:
+            return next(response_iter)
+
+        result = migrate_source(
+            source.strip(), interactive=True, prompt_func=mock_prompt
+        )
+        # First call should be replaced
+        assert "a = new_func(1 * 2)" in result or "a = new_func((1 * 2))" in result
+        # Remaining calls should not be replaced
+        assert "old_func(2)" in result
+        assert "old_func(3)" in result
+
+    def test_interactive_mixed_responses(self):
+        """Test interactive mode with mixed responses."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def old_func(x):
+    return new_func(x * 2)
+
+a = old_func(1)
+b = old_func(2)
+c = old_func(3)
+d = old_func(4)
+"""
+        responses = ["y", "n", "y", "n"]
+        response_iter = iter(responses)
+
+        def mock_prompt(old_call: str, new_call: str) -> Literal["y", "n", "a", "q"]:
+            return next(response_iter)
+
+        result = migrate_source(
+            source.strip(), interactive=True, prompt_func=mock_prompt
+        )
+        # First and third calls should be replaced
+        assert "a = new_func(1 * 2)" in result or "a = new_func((1 * 2))" in result
+        assert "old_func(2)" in result
+        assert "c = new_func(3 * 2)" in result or "c = new_func((3 * 2))" in result
+        assert "old_func(4)" in result
