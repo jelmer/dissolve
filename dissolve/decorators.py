@@ -32,14 +32,13 @@ Example:
     suggesting to use `new_api(5, 10, default=True)` instead.
 """
 
-from collections.abc import Callable
-from typing import Any, TypeVar, cast
+from typing import Any, Callable, Optional, TypeVar, Union, cast
 
 # Type variable for preserving function signatures
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def replace_me(since: tuple[int, ...] | str | None = None) -> Callable[[F], F]:
+def replace_me(since: Optional[Union[tuple[int, ...], str]] = None) -> Callable[[F], F]:
     """Mark a function as deprecated and suggest its replacement.
 
     This decorator analyzes the decorated function's return statement to

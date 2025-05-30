@@ -45,8 +45,7 @@ Example:
 
 import ast
 import logging
-from collections.abc import Callable
-from typing import Literal
+from typing import Callable, Literal, Optional, Union
 
 from .ast_helpers import is_replace_me_decorator
 from .ast_utils import substitute_parameters
@@ -74,7 +73,7 @@ class ImportInfo:
         names: List of (name, alias) tuples for imported names.
     """
 
-    def __init__(self, module: str, names: list[tuple[str, str | None]]) -> None:
+    def __init__(self, module: str, names: list[tuple[str, Union[str, None]]]) -> None:
         self.module = module
         self.names = names  # List of (name, alias) tuples
 
@@ -114,7 +113,9 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
             self.imports.append(ImportInfo(node.module, names))
         self.generic_visit(node)
 
-    def _extract_replacement_from_body(self, func_def: ast.FunctionDef) -> str | None:
+    def _extract_replacement_from_body(
+        self, func_def: ast.FunctionDef
+    ) -> Union[str, None]:
         """Extract replacement expression from function body.
 
         Args:
@@ -165,7 +166,7 @@ class FunctionCallReplacer(ast.NodeTransformer):
             return self._create_replacement_node(node, replacement)
         return node
 
-    def _get_function_name(self, node: ast.Call) -> str | None:
+    def _get_function_name(self, node: ast.Call) -> Union[str, None]:
         """Extract the function name from a Call node."""
         if isinstance(node.func, ast.Name):
             return node.func.id
@@ -255,7 +256,9 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
     def __init__(
         self,
         replacements: dict[str, ReplaceInfo],
-        prompt_func: Callable[[str, str], Literal["y", "n", "a", "q"]] | None = None,
+        prompt_func: Union[
+            Callable[[str, str], Literal["y", "n", "a", "q"]], None
+        ] = None,
     ) -> None:
         super().__init__(replacements)
         self.replace_all = False
@@ -321,9 +324,11 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
 
 def migrate_source(
     source: str,
-    module_resolver: Callable[[str, str | None], str | None] | None = None,
+    module_resolver: Union[
+        Callable[[str, Union[str, None]], Union[str, None]], None
+    ] = None,
     interactive: bool = False,
-    prompt_func: Callable[[str, str], Literal["y", "n", "a", "q"]] | None = None,
+    prompt_func: Union[Callable[[str, str], Literal["y", "n", "a", "q"]], None] = None,
 ) -> str:
     """Migrate Python source code by inlining replace_me decorated functions.
 
@@ -443,7 +448,7 @@ def migrate_file_with_imports(
     filepath: str,
     write: bool = False,
     interactive: bool = False,
-    prompt_func: Callable[[str, str], Literal["y", "n", "a", "q"]] | None = None,
+    prompt_func: Union[Callable[[str, str], Literal["y", "n", "a", "q"]], None] = None,
 ) -> str:
     """Migrate a Python file, considering imported deprecated functions.
 
@@ -489,7 +494,7 @@ def migrate_file_with_imports(
     file_dir = os.path.dirname(os.path.abspath(filepath))
 
     # Create a module resolver for local files
-    def local_module_resolver(module_name: str, _: str | None) -> str | None:
+    def local_module_resolver(module_name: str, _: Optional[str]) -> Optional[str]:
         module_path = module_name.replace(".", "/")
         potential_paths = [
             os.path.join(file_dir, f"{module_path}.py"),
