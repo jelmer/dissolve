@@ -33,7 +33,7 @@ Example:
 """
 
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 # Type variable for preserving function signatures
 F = TypeVar("F", bound=Callable[..., Any])
@@ -103,14 +103,21 @@ def replace_me(since: tuple[int, ...] | str | None = None) -> Callable[[F], F]:
             tree = ast.parse(textwrap.dedent(source))
             func_def = tree.body[0]
 
-            # Get the function body (assuming single expression/return statement)
-            if (
-                isinstance(func_def, ast.FunctionDef)
-                and func_def.body
-                and len(func_def.body) == 1
-            ):
-                stmt = func_def.body[0]
-                if isinstance(stmt, ast.Return) and stmt.value:
+            if isinstance(func_def, ast.FunctionDef):
+                stmts = [
+                    expr
+                    for expr in func_def.body
+                    if not isinstance(expr, ast.Expr)
+                    or not isinstance(expr.value, ast.Constant)
+                ]
+                # Get the function body (assuming single expression/return statement; ignoring docstrings)
+                if (
+                    len(stmts) == 1
+                    and isinstance(stmts[0], ast.Return)
+                    and stmts[0].value
+                ):
+                    stmt = cast(ast.Return, stmts[0])
+                    assert isinstance(stmt.value, ast.expr)
                     # Get the expression being returned
                     replacement_expr: str = ast.unparse(stmt.value)
 
@@ -141,7 +148,23 @@ def replace_me(since: tuple[int, ...] | str | None = None) -> Callable[[F], F]:
                         w = DeprecationWarning(
                             f"{callable!r} has been deprecated; use '{evaluated}' instead"
                         )
-                    warnings.warn(w, stacklevel=2)
+                else:
+                    if since:
+                        w = DeprecationWarning(
+                            f"{callable.__name__} has been deprecated since {since}"
+                        )
+                    else:
+                        w = DeprecationWarning(
+                            f"{callable.__name__} has been deprecated"
+                        )
+            else:
+                if since:
+                    w = DeprecationWarning(
+                        f"{callable.__name__} has been deprecated since {since}"
+                    )
+                else:
+                    w = DeprecationWarning(f"{callable.__name__} has been deprecated")
+            warnings.warn(w, stacklevel=2)
 
             return callable(*args, **kwargs)
 
