@@ -136,3 +136,45 @@ Remove decorators before version 2.0.0:
 
 This will remove decorators like ``@replace_me(since="1.0.0")`` but keep
 ``@replace_me(since="2.0.0")`` and newer.
+
+
+dissolve check
+==============
+
+The ``dissolve check`` command verifies that all ``@replace_me`` decorated
+functions in your codebase can be successfully processed by the ``dissolve
+migrate`` command. This is useful for ensuring your deprecation decorators are
+properly formatted.
+
+Usage:
+
+.. code-block:: console
+
+   $ dissolve check path/to/code
+
+This will:
+
+1. Search for Python files with ``@replace_me`` decorated functions
+2. Verify that each decorated function has a valid replacement expression
+3. Report any functions that cannot be processed by migrate
+
+Examples:
+
+Check all files in a directory:
+
+.. code-block:: console
+
+   $ dissolve check myproject/
+   myproject/utils.py: 3 @replace_me function(s) can be replaced
+   myproject/core.py: 1 @replace_me function(s) can be replaced
+
+When errors are found:
+
+.. code-block:: console
+
+   $ dissolve check myproject/broken.py
+   myproject/broken.py: ERRORS found
+     Function 'old_func' cannot be processed by migrate
+
+The command exits with code 1 if any errors are found, making it useful in CI
+pipelines to ensure all deprecations are properly formatted.
