@@ -34,6 +34,7 @@ Example:
 """
 
 import ast
+from typing import Optional
 
 from packaging import version
 
@@ -52,7 +53,7 @@ class ReplaceRemover(ast.NodeTransformer):
     """
 
     def __init__(
-        self, before_version: str | None = None, remove_all: bool = False
+        self, before_version: Optional[str] = None, remove_all: bool = False
     ) -> None:
         self.before_version = before_version
         self.remove_all = remove_all
@@ -119,7 +120,7 @@ class ReplaceRemover(ast.NodeTransformer):
             # If version parsing fails, don't remove
             return False
 
-    def _extract_version(self, decorator: ast.AST) -> str | None:
+    def _extract_version(self, decorator: ast.AST) -> Optional[str]:
         """Extract the 'since' version from a @replace_me decorator.
 
         Args:
@@ -151,7 +152,7 @@ class ReplaceRemover(ast.NodeTransformer):
 
 
 def remove_decorators(
-    source: str, before_version: str | None = None, remove_all: bool = False
+    source: str, before_version: Optional[str] = None, remove_all: bool = False
 ) -> str:
     """Remove @replace_me decorators from Python source code.
 
@@ -203,7 +204,7 @@ def remove_decorators(
 
 def remove_from_file(
     filepath: str,
-    before_version: str | None = None,
+    before_version: Optional[str] = None,
     remove_all: bool = False,
     write: bool = False,
 ) -> str:

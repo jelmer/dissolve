@@ -14,8 +14,7 @@
 
 """Type definitions for dissolve."""
 
-from collections.abc import Callable
-from typing import Any, Protocol, TypeVar
+from typing import Any, Callable, Optional, Protocol, TypeVar
 
 # Type variable for decorated functions
 F = TypeVar("F", bound=Callable[..., Any])
@@ -26,4 +25,4 @@ class Replacement(Protocol):
 
     old_name: str
     replacement_expr: str
-    since: str | None
+    since: Optional[str]

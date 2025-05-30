@@ -27,6 +27,7 @@ Run `dissolve --help` for more information on available commands and options.
 
 import ast
 from collections.abc import Callable
+from typing import Union
 
 
 def _process_files_common(
@@ -99,7 +100,7 @@ def _process_files_common(
     return 1 if check and needs_changes else 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Union[list[str], None] = None) -> int:
     """Main entry point for the dissolve command-line interface.
 
     Args:
