@@ -116,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
     """
     import argparse
 
+    from .check import check_file
     from .migrate import migrate_file_with_imports
     from .remove import remove_from_file
 
@@ -150,6 +151,14 @@ def main(argv: list[str] | None = None) -> int:
     remove_parser = subparsers.add_parser(
         "remove", help="Remove @replace_me decorators from Python files"
     )
+
+    # Check command
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Verify that @replace_me decorated functions can be successfully replaced",
+    )
+    check_parser.add_argument("files", nargs="+", help="Python files to check")
+
     remove_parser.add_argument("files", nargs="+", help="Python files to process")
     remove_parser.add_argument(
         "-w",
@@ -215,6 +224,23 @@ def main(argv: list[str] | None = None) -> int:
             "decorator removal",
             use_ast_comparison=True,
         )
+    elif args.command == "check":
+        errors_found = False
+        for filepath in args.files:
+            result = check_file(filepath)
+            if result.success:
+                if result.checked_functions:
+                    print(
+                        f"{filepath}: {len(result.checked_functions)} @replace_me function(s) can be replaced"
+                    )
+                else:
+                    print(f"{filepath}: no @replace_me functions found")
+            else:
+                errors_found = True
+                print(f"{filepath}: ERRORS found")
+                for error in result.errors:
+                    print(f"  {error}")
+        return 1 if errors_found else 0
     else:
         parser.print_help()
         return 1
