@@ -233,8 +233,6 @@ def main(argv: list[str] | None = None) -> int:
                     print(
                         f"{filepath}: {len(result.checked_functions)} @replace_me function(s) can be replaced"
                     )
-                else:
-                    print(f"{filepath}: no @replace_me functions found")
             else:
                 errors_found = True
                 print(f"{filepath}: ERRORS found")
