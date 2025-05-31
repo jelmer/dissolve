@@ -3,6 +3,33 @@ dissolve
 
 The dissolve library helps users replaces calls to deprecated library APIs.
 
+Optional Dependency Usage
+=========================
+
+If you don't want to add a runtime dependency on dissolve, you can define a fallback implementation:
+
+.. code-block:: python
+
+   try:
+       from dissolve import replace_me
+   except ModuleNotFoundError:
+       import warnings
+       
+       def replace_me(since=None, remove_in=None):
+           def decorator(func):
+               def wrapper(*args, **kwargs):
+                   msg = f"{func.__name__} has been deprecated"
+                   if since:
+                       msg += f" since {since}"
+                   if remove_in:
+                       msg += f" and will be removed in {remove_in}"
+                   warnings.warn(msg, DeprecationWarning, stacklevel=2)
+                   return func(*args, **kwargs)
+               return wrapper
+           return decorator
+
+This allows your code to work whether or not dissolve is installed. When dissolve is present, you get full deprecation warnings with replacement suggestions and migration support. When it's not installed, you still get basic deprecation warnings.
+
 Example
 =======
 
