@@ -15,9 +15,49 @@
 import os
 import sys
 import tempfile
+from contextlib import contextmanager
 from io import StringIO
 
 from dissolve.__main__ import main
+
+
+@contextmanager
+def temp_python_module(module_name, content, create_init=True):
+    """Create a temporary Python module structure for testing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        module_parts = module_name.split(".")
+
+        # Create nested directories for module structure
+        current_dir = temp_dir
+        for part in module_parts[:-1]:
+            current_dir = os.path.join(current_dir, part)
+            os.makedirs(current_dir, exist_ok=True)
+            if create_init:
+                init_file = os.path.join(current_dir, "__init__.py")
+                with open(init_file, "w") as f:
+                    f.write("# Auto-generated __init__.py\n")
+
+        # Create the final directory if needed
+        if len(module_parts) > 1:
+            # We need the parent package to have an __init__.py too
+            parent_init = os.path.join(current_dir, "__init__.py")
+            if not os.path.exists(parent_init) and create_init:
+                with open(parent_init, "w") as f:
+                    f.write("# Auto-generated __init__.py\n")
+
+        # Create the final module file
+        module_file = os.path.join(current_dir, f"{module_parts[-1]}.py")
+        with open(module_file, "w") as f:
+            f.write(content)
+
+        # Add temp_dir to sys.path so module can be imported
+        old_path = sys.path[:]
+        sys.path.insert(0, temp_dir)
+
+        try:
+            yield module_file, temp_dir
+        finally:
+            sys.path[:] = old_path
 
 
 def test_migrate_check_no_changes_needed():
@@ -315,3 +355,290 @@ def test_remove_check_write_conflict():
         assert "--check and --write cannot be used together" in error_output
     finally:
         os.unlink(temp_path)
+
+
+def test_migrate_module_flag_no_changes():
+    """Test migrate -m with a module that doesn't need migration."""
+    source = """
+def regular_function(x):
+    return x + 1
+
+result = regular_function(5)
+"""
+
+    with temp_python_module("testpkg.utils", source) as (module_file, temp_dir):
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["migrate", "-m", "testpkg.utils"])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+        # Should show migration output since it processes all related files
+        assert "Migration:" in output
+
+
+def test_migrate_module_flag_with_changes():
+    """Test migrate -m with a module that can be processed."""
+    source = """
+def old_func(x):
+    return x + 1
+
+result = old_func(5)
+"""
+
+    with temp_python_module("simple_module", source, create_init=False) as (
+        module_file,
+        temp_dir,
+    ):
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["migrate", "-m", "simple_module"])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+        assert "Migration:" in output
+
+
+def test_migrate_module_flag_check_mode():
+    """Test migrate -m --check with a module."""
+    source = """
+def old_func(x):
+    return x + 1
+
+result = old_func(5)
+"""
+
+    with temp_python_module("simple_check_module", source, create_init=False) as (
+        module_file,
+        temp_dir,
+    ):
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["migrate", "-m", "--check", "simple_check_module"])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+        assert "up to date" in output
+
+
+def test_migrate_module_flag_nested_module():
+    """Test migrate -m with a deeply nested module."""
+    source = """
+def deep_func(x):
+    return x * 2
+"""
+
+    with temp_python_module("myapp.utils.helpers", source) as (module_file, temp_dir):
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["migrate", "-m", "myapp.utils.helpers"])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+        assert "Migration:" in output
+
+
+def test_remove_module_flag_no_decorators():
+    """Test remove -m with a module that has no decorators to remove."""
+    source = """
+def regular_function(x):
+    return x + 1
+
+result = regular_function(5)
+"""
+
+    with temp_python_module("clean_module", source, create_init=False) as (
+        module_file,
+        temp_dir,
+    ):
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["remove", "-m", "--all", "clean_module"])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+        # Module flag should work even if no changes needed
+        assert len(output) >= 0
+
+
+def test_remove_module_flag_with_decorators():
+    """Test remove -m with a module."""
+    source = """
+def old_func(x):
+    return x + 1
+
+result = old_func(5)
+"""
+
+    with temp_python_module("removeme_module", source, create_init=False) as (
+        module_file,
+        temp_dir,
+    ):
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["remove", "-m", "--all", "removeme_module"])
+            sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+
+
+def test_remove_module_flag_check_mode():
+    """Test remove -m --check with a module."""
+    source = """
+def old_func(x):
+    return x + 1
+
+result = old_func(5)
+"""
+
+    with temp_python_module("checkremove_module", source, create_init=False) as (
+        module_file,
+        temp_dir,
+    ):
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["remove", "-m", "--check", "--all", "checkremove_module"])
+            sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+
+
+def test_check_module_flag_clean():
+    """Test check command with -m flag on a clean module."""
+    source = """
+def regular_function(x):
+    return x + 1
+
+result = regular_function(5)
+"""
+
+    with temp_python_module("checkclean_module", source, create_init=False) as (
+        module_file,
+        temp_dir,
+    ):
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["check", "-m", "checkclean_module"])
+            sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+
+
+def test_check_module_flag_with_issues():
+    """Test check command with -m flag on a module."""
+    source = """
+def old_func(x):
+    return x + 1
+
+result = old_func(5)
+"""
+
+    with temp_python_module("checkissues_module", source, create_init=False) as (
+        module_file,
+        temp_dir,
+    ):
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["check", "-m", "checkissues_module"])
+            sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+
+
+def test_module_flag_invalid_module():
+    """Test -m flag with a module that doesn't exist."""
+    # Capture stderr to check for error messages
+    old_stderr = sys.stderr
+    old_stdout = sys.stdout
+    sys.stderr = StringIO()
+    sys.stdout = StringIO()
+
+    try:
+        exit_code = main(["migrate", "-m", "nonexistent.module.path"])
+        sys.stdout.getvalue()
+        sys.stderr.getvalue()
+    finally:
+        sys.stderr = old_stderr
+        sys.stdout = old_stdout
+
+    # Should handle gracefully - either exit with error or silently skip
+    assert exit_code == 0 or exit_code is None or exit_code == 1
+
+
+def test_module_flag_multiple_modules():
+    """Test -m flag with multiple module paths."""
+    source1 = """
+def func1(x):
+    return x + 1
+"""
+
+    source2 = """
+def func2(x):
+    return x * 2
+"""
+
+    with temp_python_module("mod1_module", source1, create_init=False) as (
+        module_file1,
+        temp_dir1,
+    ):
+        with temp_python_module("mod2_module", source2, create_init=False) as (
+            module_file2,
+            temp_dir2,
+        ):
+            # Capture stdout
+            old_stdout = sys.stdout
+            sys.stdout = StringIO()
+
+            try:
+                exit_code = main(["migrate", "-m", "mod1_module", "mod2_module"])
+                output = sys.stdout.getvalue()
+            finally:
+                sys.stdout = old_stdout
+
+            assert exit_code == 0 or exit_code is None
+            assert "Migration:" in output

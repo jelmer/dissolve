@@ -26,8 +26,101 @@ Run `dissolve --help` for more information on available commands and options.
 """
 
 import ast
+import glob
+import importlib.util
+import os
 from collections.abc import Callable
 from typing import Union
+
+
+def _resolve_python_object_path(path: str) -> list[str]:
+    """Resolve a Python object path to file paths.
+
+    Args:
+        path: Python object path like "module.submodule.function" or "package.module"
+
+    Returns:
+        List of file paths that could contain the specified object.
+    """
+    parts = path.split(".")
+    file_paths = []
+
+    # Try different combinations of the path parts
+    for i in range(1, len(parts) + 1):
+        module_path = ".".join(parts[:i])
+
+        # Try to find the module
+        try:
+            spec = importlib.util.find_spec(module_path)
+            if spec and spec.origin:
+                file_paths.append(spec.origin)
+        except (ImportError, ModuleNotFoundError, ValueError):
+            continue
+
+    return file_paths
+
+
+def _discover_python_files(path: str, as_module: bool = False) -> list[str]:
+    """Discover Python files in a directory or resolve a path argument.
+
+    Args:
+        path: Either a file path, directory path, or Python object path
+        as_module: If True, treat path as a Python module path
+
+    Returns:
+        List of Python file paths to process.
+    """
+    # If explicitly treating as module path, resolve it
+    if as_module:
+        return _resolve_python_object_path(path)
+
+    # If it's already a Python file, return it
+    if os.path.isfile(path) and path.endswith(".py"):
+        return [path]
+
+    # If it's a directory, scan recursively for Python files
+    if os.path.isdir(path):
+        python_files = []
+        for root, dirs, files in os.walk(path):
+            # Skip hidden directories and __pycache__
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__"]
+
+            for file in files:
+                if file.endswith(".py"):
+                    python_files.append(os.path.join(root, file))
+        return sorted(python_files)
+
+    # Try glob pattern matching for file paths
+    if "*" in path or "?" in path:
+        return sorted(glob.glob(path))
+
+    # Fall back to treating it as a file path (may not exist)
+    return [path]
+
+
+def _expand_paths(paths: list[str], as_module: bool = False) -> list[str]:
+    """Expand a list of paths to include directories and Python object paths.
+
+    Args:
+        paths: List of file paths, directory paths, or Python object paths
+        as_module: If True, treat paths as Python module paths
+
+    Returns:
+        Expanded list of Python file paths.
+    """
+    expanded = []
+    for path in paths:
+        expanded.extend(_discover_python_files(path, as_module=as_module))
+
+    # Remove duplicates while preserving order
+    seen = set()
+    result = []
+    for file_path in expanded:
+        if file_path not in seen:
+            seen.add(file_path)
+            result.append(file_path)
+
+    return result
 
 
 def _process_files_common(
@@ -130,7 +223,15 @@ def main(argv: Union[list[str], None] = None) -> int:
     migrate_parser = subparsers.add_parser(
         "migrate", help="Migrate Python files by inlining deprecated function calls"
     )
-    migrate_parser.add_argument("files", nargs="+", help="Python files to migrate")
+    migrate_parser.add_argument(
+        "paths", nargs="+", help="Python files or directories to migrate"
+    )
+    migrate_parser.add_argument(
+        "-m",
+        "--module",
+        action="store_true",
+        help="Treat paths as Python module paths (e.g. package.module)",
+    )
     migrate_parser.add_argument(
         "-w",
         "--write",
@@ -158,9 +259,25 @@ def main(argv: Union[list[str], None] = None) -> int:
         "check",
         help="Verify that @replace_me decorated functions can be successfully replaced",
     )
-    check_parser.add_argument("files", nargs="+", help="Python files to check")
+    check_parser.add_argument(
+        "paths", nargs="+", help="Python files or directories to check"
+    )
+    check_parser.add_argument(
+        "-m",
+        "--module",
+        action="store_true",
+        help="Treat paths as Python module paths (e.g. package.module)",
+    )
 
-    remove_parser.add_argument("files", nargs="+", help="Python files to process")
+    remove_parser.add_argument(
+        "paths", nargs="+", help="Python files or directories to process"
+    )
+    remove_parser.add_argument(
+        "-m",
+        "--module",
+        action="store_true",
+        help="Treat paths as Python module paths (e.g. package.module)",
+    )
     remove_parser.add_argument(
         "-w",
         "--write",
@@ -199,8 +316,9 @@ def main(argv: Union[list[str], None] = None) -> int:
             )
             return original, result
 
+        files = _expand_paths(args.paths, as_module=args.module)
         return _process_files_common(
-            args.files, migrate_processor, args.check, args.write, "migration"
+            files, migrate_processor, args.check, args.write, "migration"
         )
     elif args.command == "remove":
         if args.check and args.write:
@@ -217,8 +335,9 @@ def main(argv: Union[list[str], None] = None) -> int:
             )
             return original, result
 
+        files = _expand_paths(args.paths, as_module=args.module)
         return _process_files_common(
-            args.files,
+            files,
             remove_processor,
             args.check,
             args.write,
@@ -227,7 +346,8 @@ def main(argv: Union[list[str], None] = None) -> int:
         )
     elif args.command == "check":
         errors_found = False
-        for filepath in args.files:
+        files = _expand_paths(args.paths, as_module=args.module)
+        for filepath in files:
             result = check_file(filepath)
             if result.success:
                 if result.checked_functions:
