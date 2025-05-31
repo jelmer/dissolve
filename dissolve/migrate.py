@@ -45,10 +45,179 @@ Example:
 
 import ast
 import logging
-from typing import Callable, Literal, Optional, Union
+from typing import Callable, Literal, Optional
 
-from .ast_helpers import is_replace_me_decorator
+from .ast_helpers import (
+    contains_local_imports,
+    contains_recursive_call,
+    expr_to_replacement_string,
+    extract_module_names,
+    extract_names_from_ast,
+    filter_out_docstrings,
+    get_single_return_value,
+    get_variables_used,
+    is_replace_me_decorator,
+    substitute_variable_in_expr,
+    uses_variable,
+)
 from .ast_utils import substitute_parameters
+from .context_analyzer import ContextAnalyzer, analyze_replacement_context
+from .import_utils import ImportManager, ImportRequirement
+from .types import FunctionDefNode, ReplacementExtractionError, ReplacementFailureReason
+
+
+def can_chain_assignments(body: list[ast.stmt]) -> bool:
+    """Check if assignments can be chained into a single expression."""
+    if len(body) < 3:  # Need at least 2 assignments + return
+        return False
+
+    # Check if all but last are assignments, last is return
+    if not isinstance(body[-1], ast.Return) or not body[-1].value:
+        return False
+
+    for stmt in body[:-1]:
+        if not isinstance(stmt, ast.Assign):
+            return False
+        if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+            return False
+
+    # Check if assignments form a simple chain (each uses only the previous variable)
+    assignments = body[:-1]
+    return_stmt = body[-1]
+
+    # Simple case: each assignment uses only the previous variable (method chaining pattern)
+    for i in range(1, len(assignments)):
+        prev_assign = assignments[i - 1]
+        current_assign = assignments[i]
+        assert isinstance(prev_assign, ast.Assign)  # Already checked above
+        assert isinstance(current_assign, ast.Assign)  # Already checked above
+        assert isinstance(prev_assign.targets[0], ast.Name)  # Already checked above
+        prev_var = prev_assign.targets[0].id
+        current_expr = current_assign.value
+
+        # Check if current expression uses only the previous variable
+        used_vars = get_variables_used(current_expr)
+        if len(used_vars) != 1 or prev_var not in used_vars:
+            return False
+
+    # Check if return uses only the last variable
+    last_assign = assignments[-1]
+    assert isinstance(last_assign, ast.Assign)  # Should be guaranteed by caller
+    assert isinstance(
+        last_assign.targets[0], ast.Name
+    )  # Should be guaranteed by caller
+    last_var = last_assign.targets[0].id
+
+    if not isinstance(return_stmt, ast.Return) or return_stmt.value is None:
+        return False
+    return_vars = get_variables_used(return_stmt.value)
+
+    # Allow return to use multiple variables, but last assignment variable should be one of them
+    if last_var not in return_vars:
+        return False
+
+    return True
+
+
+def chain_assignments_to_expression(func_def: FunctionDefNode) -> Optional[str]:
+    """Chain assignments into a single expression."""
+    if not func_def.body:
+        return None
+
+    assignments = func_def.body[:-1]
+    return_stmt = func_def.body[-1]
+
+    # Start with the first assignment's value
+    first_assign = assignments[0]
+    assert isinstance(first_assign, ast.Assign)  # Should be guaranteed by caller
+    result_expr = first_assign.value
+
+    # Chain subsequent assignments by substituting variables
+    for assignment in assignments[1:]:
+        assert isinstance(assignment, ast.Assign)  # Should be guaranteed by caller
+        prev_assign = assignments[assignments.index(assignment) - 1]
+        assert isinstance(prev_assign, ast.Assign)  # Should be guaranteed by caller
+        assert isinstance(
+            prev_assign.targets[0], ast.Name
+        )  # Should be guaranteed by caller
+        var_name = prev_assign.targets[0].id
+        current_expr = assignment.value
+
+        # Substitute the previous variable with the accumulated expression
+        substituted_expr = substitute_variable_in_expr(
+            current_expr, var_name, result_expr
+        )
+        if not substituted_expr:
+            return None
+        # Safe to cast since substitute_variable_in_expr preserves expression type
+        result_expr = substituted_expr  # type: ignore[assignment]
+
+    # Finally, substitute in the return expression
+    last_assign_final = assignments[-1]
+    assert isinstance(last_assign_final, ast.Assign)  # Should be guaranteed by caller
+    assert isinstance(
+        last_assign_final.targets[0], ast.Name
+    )  # Should be guaranteed by caller
+    last_var = last_assign_final.targets[0].id
+
+    if not isinstance(return_stmt, ast.Return) or return_stmt.value is None:
+        return None
+    final_expr = substitute_variable_in_expr(return_stmt.value, last_var, result_expr)
+
+    if final_expr:
+        return expr_to_replacement_string(final_expr, func_def)
+
+    return None
+
+
+def get_function_name(node: ast.Call) -> Optional[str]:
+    """Extract the function name from a Call node."""
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    return None
+
+
+def build_param_map_fallback(
+    call: ast.Call, replacement: "ReplaceInfo"
+) -> dict[str, ast.expr]:
+    """Fallback parameter mapping without function definition."""
+    import re
+
+    param_names = re.findall(r"\{(\w+)\}", replacement.replacement_expr)
+    param_map: dict[str, ast.expr] = {}
+
+    # Simple positional mapping
+    for i, (param_name, arg) in enumerate(zip(param_names, call.args)):
+        param_map[param_name] = arg
+
+    # Map keyword arguments
+    for keyword in call.keywords:
+        if keyword.arg and keyword.arg in param_names:
+            param_map[keyword.arg] = keyword.value
+
+    return param_map
+
+
+def add_default_values(
+    param_map: dict[str, ast.expr], args: ast.arguments, replacement_expr: str
+) -> None:
+    """Add default values for missing parameters."""
+    import re
+
+    param_names = re.findall(r"\{(\w+)\}", replacement_expr)
+
+    # Calculate default value positions
+    num_defaults = len(args.defaults)
+    default_start = len(args.args) - num_defaults
+
+    for param_name in param_names:
+        if param_name not in param_map:
+            # Find parameter position and check for default
+            for i, arg in enumerate(args.args):
+                if arg.arg == param_name and i >= default_start:
+                    default_idx = i - default_start
+                    param_map[param_name] = args.defaults[default_idx]
+                    break
 
 
 class ReplaceInfo:
@@ -58,11 +227,21 @@ class ReplaceInfo:
         old_name: The name of the deprecated function.
         replacement_expr: The replacement expression template with parameter
             placeholders in the format {param_name}.
+        func_def: The original function definition AST node.
+        source_module: The module where this function is defined (for imports).
     """
 
-    def __init__(self, old_name: str, replacement_expr: str) -> None:
+    def __init__(
+        self,
+        old_name: str,
+        replacement_expr: str,
+        func_def: Optional[FunctionDefNode] = None,
+        source_module: Optional[str] = None,
+    ) -> None:
         self.old_name = old_name
         self.replacement_expr = replacement_expr
+        self.func_def = func_def
+        self.source_module = source_module
 
 
 class ImportInfo:
@@ -73,7 +252,7 @@ class ImportInfo:
         names: List of (name, alias) tuples for imported names.
     """
 
-    def __init__(self, module: str, names: list[tuple[str, Union[str, None]]]) -> None:
+    def __init__(self, module: str, names: list[tuple[str, Optional[str]]]) -> None:
         self.module = module
         self.names = names  # List of (name, alias) tuples
 
@@ -88,22 +267,42 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
     Attributes:
         replacements: Mapping from function names to their replacement info.
         imports: List of import information for module resolution.
+        extraction_errors: List of functions that could not be processed and their errors.
     """
 
     def __init__(self) -> None:
         self.replacements: dict[str, ReplaceInfo] = {}
         self.imports: list[ImportInfo] = []
+        self.extraction_errors: list[ReplacementExtractionError] = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """Process function definitions to find @replace_me decorators."""
         for decorator in node.decorator_list:
             if is_replace_me_decorator(decorator):
                 # For the new format, extract replacement from function body
-                replacement_expr = self._extract_replacement_from_body(node)
-                if replacement_expr:
+                try:
+                    replacement_expr = self._extract_replacement_from_body(node)
                     self.replacements[node.name] = ReplaceInfo(
-                        node.name, replacement_expr
+                        node.name, replacement_expr, node
                     )
+                except ReplacementExtractionError as e:
+                    # Store the extraction error for later reporting
+                    self.extraction_errors.append(e)
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        """Process async function definitions to find @replace_me decorators."""
+        for decorator in node.decorator_list:
+            if is_replace_me_decorator(decorator):
+                # Try to extract replacement (this will raise ReplacementExtractionError for async functions)
+                try:
+                    replacement_expr = self._extract_replacement_from_body(node)
+                    self.replacements[node.name] = ReplaceInfo(
+                        node.name, replacement_expr, node
+                    )
+                except ReplacementExtractionError as e:
+                    # Store the extraction error for later reporting
+                    self.extraction_errors.append(e)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -113,32 +312,211 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
             self.imports.append(ImportInfo(node.module, names))
         self.generic_visit(node)
 
-    def _extract_replacement_from_body(
-        self, func_def: ast.FunctionDef
-    ) -> Union[str, None]:
+    def _extract_replacement_from_body(self, func_def: FunctionDefNode) -> str:
         """Extract replacement expression from function body.
 
         Args:
             func_def: The function definition AST node.
 
         Returns:
-            The replacement expression with parameter placeholders, or None
-            if no valid replacement can be extracted.
+            The replacement expression with parameter placeholders.
+
+        Raises:
+            ReplacementExtractionError: If no valid replacement can be extracted.
         """
-        if func_def.body and len(func_def.body) == 1:
-            stmt = func_def.body[0]
-            if isinstance(stmt, ast.Return) and stmt.value:
-                # Create a template with parameter placeholders
-                replacement_expr = ast.unparse(stmt.value)
+        # Early validation checks
+        self._validate_function_for_inlining(func_def)
 
-                # Replace parameter names with placeholders
-                for arg in func_def.args.args:
-                    param_name = arg.arg
-                    replacement_expr = replacement_expr.replace(
-                        param_name, f"{{{param_name}}}"
+        # Check for local imports in any statement (this should be checked early)
+        for stmt in func_def.body:
+            if contains_local_imports(stmt):
+                raise ReplacementExtractionError(
+                    func_def.name,
+                    ReplacementFailureReason.LOCAL_IMPORTS,
+                    "Function contains import statements which cannot be inlined",
+                    func_def.lineno,
+                )
+
+        # Try single-statement function first
+        return_value = get_single_return_value(func_def)
+        if return_value:
+            return self._process_single_return(func_def, return_value)
+
+        # Try multi-statement function
+        multi_stmt_result = self._try_simplify_multi_statement(func_def)
+        if multi_stmt_result:
+            return multi_stmt_result
+
+        # Handle empty function bodies by returning None
+        # First, filter out docstrings to evaluate the "real" body
+        filtered_body = filter_out_docstrings(func_def.body)
+        stmt_count = len(filtered_body)
+
+        if stmt_count == 0:
+            # Completely empty function body (or only docstring)
+            return "None"
+        elif stmt_count == 1 and isinstance(filtered_body[0], ast.Pass):
+            # Function only contains 'pass' statement (plus optional docstring)
+            return "None"
+        else:
+            # Function is too complex
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.COMPLEX_BODY,
+                f"Function has {stmt_count} statements",
+                func_def.lineno,
+            )
+
+    def _process_single_return(
+        self, func_def: FunctionDefNode, return_value: ast.AST
+    ) -> str:
+        """Process a single return statement for inlining.
+
+        Raises:
+            ReplacementExtractionError: If the return statement cannot be processed.
+        """
+        # Check for recursive calls
+        if contains_recursive_call(return_value, func_def.name):
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.RECURSIVE_CALL,
+                "Function calls itself recursively which cannot be inlined",
+                func_def.lineno,
+            )
+
+        # Check for local imports
+        if contains_local_imports(return_value):
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.LOCAL_IMPORTS,
+                "Function contains import statements which cannot be inlined",
+                func_def.lineno,
+            )
+
+        return expr_to_replacement_string(return_value, func_def)
+
+    @classmethod
+    def _validate_function_for_inlining(cls, func_def: FunctionDefNode) -> None:
+        """Check if function can be inlined at all.
+
+        Raises:
+            ReplacementExtractionError: If function cannot be inlined.
+        """
+        # Check if function has **kwargs (still too complex to handle)
+        if func_def.args.kwarg:
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.ARGS_KWARGS,
+                "Functions with **kwargs are too complex to inline automatically",
+                func_def.lineno,
+            )
+
+        # Check if it's an async function
+        if isinstance(func_def, ast.AsyncFunctionDef):
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.ASYNC_FUNCTION,
+                "Async function calls require await expressions which cannot be inlined",
+                func_def.lineno,
+            )
+
+    def _get_non_parameter_names(
+        self, func_def: FunctionDefNode, replacement_expr: str
+    ) -> set[str]:
+        """Get names in replacement expression that are not parameters."""
+        # Get parameter names
+        param_names = {arg.arg for arg in func_def.args.args}
+        if func_def.args.vararg:
+            param_names.add(func_def.args.vararg.arg)
+
+        # Replace placeholders with dummy parameter names for parsing
+        temp_expr = replacement_expr
+        for param in param_names:
+            temp_expr = temp_expr.replace(f"{{{param}}}", param)
+
+        # Parse replacement expression
+        try:
+            tree = ast.parse(temp_expr, mode="eval")
+        except SyntaxError:
+            return set()
+
+        # Get all names used as variables (not modules)
+        all_names = extract_names_from_ast(
+            tree, context_filter=lambda ctx: isinstance(ctx, ast.Load)
+        )
+
+        # Get module names separately
+        module_names = extract_module_names(tree)
+
+        # Return names that are not parameters and not modules
+        return (all_names - param_names) - module_names
+
+    def _try_simplify_multi_statement(self, func_def: FunctionDefNode) -> Optional[str]:
+        """Try to simplify multi-statement functions into single expressions.
+
+        Handles patterns like:
+        - assignment + return (e.g., x = a * 2; return x + 1)
+        - multiple assignments + return (chaining or substitution)
+        - import + return (by hoisting imports)
+        """
+        if not func_def.body:
+            return None
+
+        # Check for recursive calls first
+        for stmt in func_def.body:
+            if contains_recursive_call(stmt, func_def.name):
+                return None
+
+        # Check for async function
+        if isinstance(func_def, ast.AsyncFunctionDef):
+            return None
+
+        # Pattern 1: Single assignment + return
+        if len(func_def.body) == 2:
+            first_stmt = func_def.body[0]
+            second_stmt = func_def.body[1]
+
+            if (
+                isinstance(first_stmt, ast.Assign)
+                and isinstance(second_stmt, ast.Return)
+                and second_stmt.value
+                and len(first_stmt.targets) == 1
+                and isinstance(first_stmt.targets[0], ast.Name)
+            ):
+                var_name = first_stmt.targets[0].id
+                var_value = first_stmt.value
+                return_expr = second_stmt.value
+
+                # Check if the assigned variable is used in the return
+                if uses_variable(return_expr, var_name):
+                    # Substitute the variable with its value
+                    simplified = substitute_variable_in_expr(
+                        return_expr, var_name, var_value
                     )
+                    if simplified:
+                        return expr_to_replacement_string(simplified, func_def)
 
-                return replacement_expr
+        # Pattern 2: Import + return (hoist the import)
+        if len(func_def.body) == 2:
+            first_stmt = func_def.body[0]
+            second_stmt = func_def.body[1]
+
+            if (
+                (
+                    isinstance(first_stmt, ast.Import)
+                    or isinstance(first_stmt, ast.ImportFrom)
+                )
+                and isinstance(second_stmt, ast.Return)
+                and second_stmt.value
+            ):
+                # For now, we'll handle this by warning that imports need to be hoisted manually
+                # In a full implementation, we would modify the module's imports
+                return None
+
+        # Pattern 3: Multiple simple assignments that can be chained
+        if can_chain_assignments(func_def.body):
+            return chain_assignments_to_expression(func_def)
+
         return None
 
 
@@ -155,22 +533,17 @@ class FunctionCallReplacer(ast.NodeTransformer):
 
     def __init__(self, replacements: dict[str, ReplaceInfo]) -> None:
         self.replacements = replacements
+        self.new_functions_used: set[str] = set()
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
         """Visit Call nodes and replace deprecated function calls."""
         self.generic_visit(node)
 
-        func_name = self._get_function_name(node)
+        func_name = get_function_name(node)
         if func_name and func_name in self.replacements:
             replacement = self.replacements[func_name]
             return self._create_replacement_node(node, replacement)
         return node
-
-    def _get_function_name(self, node: ast.Call) -> Union[str, None]:
-        """Extract the function name from a Call node."""
-        if isinstance(node.func, ast.Name):
-            return node.func.id
-        return None
 
     def _create_replacement_node(
         self, original_call: ast.Call, replacement: ReplaceInfo
@@ -201,6 +574,9 @@ class FunctionCallReplacer(ast.NodeTransformer):
             # Substitute parameters using AST transformation
             result = substitute_parameters(replacement_ast, param_map)
 
+            # Track new functions used in the replacement
+            self._track_new_functions(result)
+
             # Copy location information from original call
             ast.copy_location(result, original_call)
             return result
@@ -220,25 +596,59 @@ class FunctionCallReplacer(ast.NodeTransformer):
         Returns:
             Dictionary mapping parameter names to their AST representations.
         """
-        # For now, we'll do a simple mapping based on position
-        # This could be enhanced to handle keyword arguments properly
-        param_map = {}
+        if replacement.func_def:
+            return self._build_param_map_with_definition(call, replacement)
+        else:
+            return build_param_map_fallback(call, replacement)
 
-        # Extract parameter names from replacement expression
-        import re
-
-        param_names = re.findall(r"\{(\w+)\}", replacement.replacement_expr)
+    def _build_param_map_with_definition(
+        self, call: ast.Call, replacement: ReplaceInfo
+    ) -> dict[str, ast.expr]:
+        """Build parameter map using function definition for accurate mapping."""
+        assert replacement.func_def is not None  # Should be guaranteed by caller
+        param_map: dict[str, ast.expr] = {}
+        args = replacement.func_def.args
 
         # Map positional arguments
-        for i, (param_name, arg) in enumerate(zip(param_names, call.args)):
-            param_map[param_name] = arg
+        for i, arg in enumerate(call.args):
+            if i < len(args.args):
+                param_name = args.args[i].arg
+                param_map[param_name] = arg
+
+        # Handle *args if present
+        if args.vararg:
+            vararg_name = args.vararg.arg
+            remaining_args = call.args[len(args.args) :]
+            param_map[vararg_name] = ast.Tuple(elts=remaining_args, ctx=ast.Load())
 
         # Map keyword arguments
         for keyword in call.keywords:
-            if keyword.arg and keyword.arg in param_names:
+            if keyword.arg:
                 param_map[keyword.arg] = keyword.value
 
+        # Fill in missing parameters with defaults
+        add_default_values(param_map, args, replacement.replacement_expr)
+
         return param_map
+
+    def _track_new_functions(self, node: ast.AST) -> None:
+        """Track function names used in replacement expressions."""
+
+        class FunctionNameCollector(ast.NodeVisitor):
+            def __init__(self, tracker: set[str]):
+                self.tracker = tracker
+
+            def visit_Call(self, node: ast.Call) -> None:
+                if isinstance(node.func, ast.Name):
+                    self.tracker.add(node.func.id)
+                elif isinstance(node.func, ast.Attribute):
+                    # For module.function calls, track the full name
+                    if isinstance(node.func.value, ast.Name):
+                        self.tracker.add(f"{node.func.value.id}.{node.func.attr}")
+                self.generic_visit(node)
+
+        collector = FunctionNameCollector(self.new_functions_used)
+        collector.visit(node)
 
 
 class InteractiveFunctionCallReplacer(FunctionCallReplacer):
@@ -256,9 +666,7 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
     def __init__(
         self,
         replacements: dict[str, ReplaceInfo],
-        prompt_func: Union[
-            Callable[[str, str], Literal["y", "n", "a", "q"]], None
-        ] = None,
+        prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
     ) -> None:
         super().__init__(replacements)
         self.replace_all = False
@@ -292,7 +700,7 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
 
         self.generic_visit(node)
 
-        func_name = self._get_function_name(node)
+        func_name = get_function_name(node)
         if func_name and func_name in self.replacements:
             replacement = self.replacements[func_name]
 
@@ -324,11 +732,9 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
 
 def migrate_source(
     source: str,
-    module_resolver: Union[
-        Callable[[str, Union[str, None]], Union[str, None]], None
-    ] = None,
+    module_resolver: Optional[Callable[[str, Optional[str]], Optional[str]]] = None,
     interactive: bool = False,
-    prompt_func: Union[Callable[[str, str], Literal["y", "n", "a", "q"]], None] = None,
+    prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
 ) -> str:
     """Migrate Python source code by inlining replace_me decorated functions.
 
@@ -371,7 +777,11 @@ def migrate_source(
     # Parse the source code
     tree = ast.parse(source)
 
-    # First pass: collect imports and local deprecations
+    # First pass: analyze context (imports, local definitions)
+    context = ContextAnalyzer()
+    context.visit(tree)
+
+    # Second pass: collect imports and local deprecations
     collector = DeprecatedFunctionCollector()
     collector.visit(tree)
 
@@ -391,9 +801,14 @@ def migrate_source(
                     for name, alias in import_info.names:
                         if name in module_collector.replacements:
                             replacement_info = module_collector.replacements[name]
-                            # Use alias if provided, otherwise use original name
+                            # Create a new ReplaceInfo with the source module information
                             key = alias if alias else name
-                            collector.replacements[key] = replacement_info
+                            collector.replacements[key] = ReplaceInfo(
+                                old_name=key,
+                                replacement_expr=replacement_info.replacement_expr,
+                                func_def=replacement_info.func_def,
+                                source_module=import_info.module,
+                            )
             except BaseException as e:
                 logging.warning(
                     'Failed to resolve module "%s", ignoring: %s', import_info.module, e
@@ -402,7 +817,7 @@ def migrate_source(
     if not collector.replacements:
         return source
 
-    # Second pass: replace function calls
+    # Third pass: replace function calls
     if interactive:
         replacer: FunctionCallReplacer = InteractiveFunctionCallReplacer(
             collector.replacements, prompt_func
@@ -410,6 +825,48 @@ def migrate_source(
     else:
         replacer = FunctionCallReplacer(collector.replacements)
     new_tree = replacer.visit(tree)
+
+    # Fourth pass: intelligent import management
+    if replacer.new_functions_used or collector.replacements:
+        import_manager = ImportManager(new_tree)
+
+        # Analyze replacement expressions for import requirements
+        for old_func, replacement_info in collector.replacements.items():
+            requirements = analyze_replacement_context(
+                replacement_info.replacement_expr, context
+            )
+
+            for req in requirements:
+                if req.is_local_reference:
+                    # This references something defined locally, no import needed
+                    continue
+
+                if req.suggested_module:
+                    # We have a suggestion for where this should be imported from
+                    actual_req = ImportRequirement(
+                        module=req.suggested_module, name=req.name, alias=req.alias
+                    )
+                    import_manager.add_import(actual_req)
+                elif req.module:
+                    # We know the exact module
+                    import_manager.add_import(req)
+
+            # If this replacement comes from an imported module, check for local variable references
+            if replacement_info.source_module and replacement_info.func_def:
+                non_param_names = collector._get_non_parameter_names(
+                    replacement_info.func_def, replacement_info.replacement_expr
+                )
+
+                # Add imports for non-parameter names from the source module
+                for name in non_param_names:
+                    # Skip if already imported or defined locally
+                    if not context.is_local_reference(
+                        name
+                    ) and not context.get_import_source(name):
+                        import_req = ImportRequirement(
+                            module=replacement_info.source_module, name=name, alias=None
+                        )
+                        import_manager.add_import(import_req)
 
     # Convert back to source code
     return ast.unparse(new_tree)
@@ -448,7 +905,7 @@ def migrate_file_with_imports(
     filepath: str,
     write: bool = False,
     interactive: bool = False,
-    prompt_func: Union[Callable[[str, str], Literal["y", "n", "a", "q"]], None] = None,
+    prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
 ) -> str:
     """Migrate a Python file, considering imported deprecated functions.
 

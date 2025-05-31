@@ -14,10 +14,17 @@
 
 """Type definitions for dissolve."""
 
-from typing import Any, Callable, Optional, Protocol, TypeVar
+import ast
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Callable, Optional, Protocol, TypeVar, Union
 
 # Type variable for decorated functions
 F = TypeVar("F", bound=Callable[..., Any])
+
+# Type aliases for better readability
+FunctionDefNode = Union[ast.FunctionDef, ast.AsyncFunctionDef]
+VersionType = Union[tuple[int, ...], str, None]
 
 
 class Replacement(Protocol):
@@ -26,3 +33,57 @@ class Replacement(Protocol):
     old_name: str
     replacement_expr: str
     since: Optional[str]
+
+
+class ReplacementFailureReason(Enum):
+    """Reasons why a function cannot be automatically replaced."""
+
+    ARGS_KWARGS = "Function uses **kwargs"
+    ASYNC_FUNCTION = "Async functions cannot be inlined"
+    RECURSIVE_CALL = "Function contains recursive calls"
+    LOCAL_IMPORTS = "Function contains local imports"
+    COMPLEX_BODY = "Function body is too complex to inline"
+
+
+@dataclass
+class LocalVariableReference:
+    """Information about a local variable reference in a replacement expression."""
+
+    name: str
+    source_module: Union[str, None] = None
+
+
+class ReplacementExtractionError(Exception):
+    """Exception raised when a function cannot be processed for replacement.
+
+    This exception provides detailed information about why a function
+    decorated with @replace_me cannot be automatically replaced.
+
+    Attributes:
+        function_name: Name of the function that cannot be processed.
+        failure_reason: Enum indicating the specific type of failure.
+        details: Optional additional details about the failure.
+        line_number: Optional line number where the function is defined.
+    """
+
+    def __init__(
+        self,
+        function_name: str,
+        failure_reason: ReplacementFailureReason,
+        details: Optional[str] = None,
+        line_number: Optional[int] = None,
+    ) -> None:
+        self.function_name = function_name
+        self.failure_reason = failure_reason
+        self.details = details
+        self.line_number = line_number
+
+        message = (
+            f"Function '{function_name}' cannot be processed: {failure_reason.value}"
+        )
+        if details:
+            message += f" ({details})"
+        if line_number:
+            message += f" (line {line_number})"
+
+        super().__init__(message)
