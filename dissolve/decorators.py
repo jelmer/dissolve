@@ -141,28 +141,30 @@ def replace_me(since: Optional[Union[tuple[int, ...], str]] = None) -> Callable[
 
                     if since:
                         w = DeprecationWarning(
-                            f"{callable!r} has been deprecated since {since}; use '{evaluated}' instead"
+                            f"{callable!r} has been deprecated since {since}; use '{evaluated}' instead. Run 'dissolve migrate' to update your code automatically."
                         )
                     else:
                         w = DeprecationWarning(
-                            f"{callable!r} has been deprecated; use '{evaluated}' instead"
+                            f"{callable!r} has been deprecated; use '{evaluated}' instead. Run 'dissolve migrate' to update your code automatically."
                         )
                 else:
                     if since:
                         w = DeprecationWarning(
-                            f"{callable.__name__} has been deprecated since {since}"
+                            f"{callable.__name__} has been deprecated since {since}. Run 'dissolve migrate' to update your code automatically."
                         )
                     else:
                         w = DeprecationWarning(
-                            f"{callable.__name__} has been deprecated"
+                            f"{callable.__name__} has been deprecated. Run 'dissolve migrate' to update your code automatically."
                         )
             else:
                 if since:
                     w = DeprecationWarning(
-                        f"{callable.__name__} has been deprecated since {since}"
+                        f"{callable.__name__} has been deprecated since {since}. Run 'dissolve migrate' to update your code automatically."
                     )
                 else:
-                    w = DeprecationWarning(f"{callable.__name__} has been deprecated")
+                    w = DeprecationWarning(
+                        f"{callable.__name__} has been deprecated. Run 'dissolve migrate' to update your code automatically."
+                    )
             warnings.warn(w, stacklevel=2)
 
             return callable(*args, **kwargs)
