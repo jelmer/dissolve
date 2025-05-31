@@ -60,3 +60,52 @@ def test_replace_me_with_complex_expression():
     # Should properly show the list and number in the warning
     assert "[1, 2, 3]" in warning_msg
     assert "30" in warning_msg
+
+
+def test_deprecation_message_includes_migrate_suggestion():
+    """Test that deprecation warnings include 'dissolve migrate' suggestion."""
+
+    @replace_me(since="1.5.0")
+    def deprecated_func(x, y):
+        return x + y
+
+    with pytest.deprecated_call() as warning_info:
+        deprecated_func(1, 2)
+
+    warning_msg = str(warning_info.list[0].message)
+    assert "dissolve migrate" in warning_msg
+    assert "update your code automatically" in warning_msg
+
+
+def test_deprecation_message_without_since_includes_migrate():
+    """Test that deprecation warnings without 'since' still include migrate suggestion."""
+
+    @replace_me()
+    def another_deprecated_func(value):
+        return value * 2
+
+    with pytest.deprecated_call() as warning_info:
+        another_deprecated_func(5)
+
+    warning_msg = str(warning_info.list[0].message)
+    assert "dissolve migrate" in warning_msg
+    assert "update your code automatically" in warning_msg
+
+
+def test_deprecation_message_for_non_analyzable_function():
+    """Test migrate suggestion for functions that can't be analyzed."""
+
+    @replace_me(since="3.0.0")
+    def complex_func(x):
+        # Multiple statements make this non-analyzable
+        if x > 0:
+            return x * 2
+        else:
+            return 0
+
+    with pytest.deprecated_call() as warning_info:
+        complex_func(3)
+
+    warning_msg = str(warning_info.list[0].message)
+    assert "dissolve migrate" in warning_msg
+    assert "update your code automatically" in warning_msg
