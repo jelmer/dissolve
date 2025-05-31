@@ -642,3 +642,96 @@ def func2(x):
 
             assert exit_code == 0 or exit_code is None
             assert "Migration:" in output
+
+
+def test_remove_current_version_flag():
+    """Test remove --current-version flag."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="1.0.0", remove_in="2.0.0")
+def old_func(x):
+    return x + 1
+
+@replace_me(since="1.5.0", remove_in="3.0.0")
+def newer_func(y):
+    return y * 2
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            # Current version 2.0.0 - should remove old_func decorator
+            exit_code = main(["remove", "--current-version", "2.0.0", temp_path])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0 or exit_code is None
+        # Should show that old_func decorator was removed but newer_func wasn't
+        assert (
+            '@replace_me(since="1.0.0", remove_in="2.0.0")' not in output
+            and "@replace_me(since='1.0.0', remove_in='2.0.0')" not in output
+        )
+        assert "def old_func(x):" in output
+        assert (
+            '@replace_me(since="1.5.0", remove_in="3.0.0")' in output
+            or "@replace_me(since='1.5.0', remove_in='3.0.0')" in output
+        )
+    finally:
+        os.unlink(temp_path)
+
+
+def test_remove_current_version_with_check():
+    """Test remove --current-version with --check flag."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="1.0.0", remove_in="2.0.0")
+def old_func(x):
+    return x + 1
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            # Current version 2.0.0 - should detect removable decorator
+            exit_code = main(
+                ["remove", "--check", "--current-version", "2.0.0", temp_path]
+            )
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 1  # Should detect changes needed
+        assert "needs decorator removal" in output
+    finally:
+        os.unlink(temp_path)
+
+
+def test_auto_detect_version():
+    """Test automatic version detection."""
+    from dissolve.__main__ import _detect_package_version
+
+    # Should detect the dissolve package version when run from project directory
+    version = _detect_package_version(".")
+    assert version is not None
+    assert isinstance(version, str)
+    # Should be a valid semantic version format
+    import re
+
+    assert re.match(r"^\d+\.\d+\.\d+", version)

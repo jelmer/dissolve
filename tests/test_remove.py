@@ -184,3 +184,144 @@ async def async_func(x):
     assert "@replace_me" not in result
     assert "async def async_func(x):" in result
     assert "return x + 1" in result
+
+
+def test_remove_in_parameter():
+    """Test removing decorators based on remove_in parameter."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="1.0.0", remove_in="2.0.0")
+def old_func(x):
+    return x + 1
+
+@replace_me(since="1.5.0", remove_in="3.0.0")
+def newer_func(y):
+    return y * 2
+
+@replace_me(since="2.0.0")
+def no_remove_in(z):
+    return z - 1
+"""
+
+    # Current version is 2.0.0, so old_func should be removed
+    result = remove_decorators(source, current_version="2.0.0")
+    assert (
+        '@replace_me(since="1.0.0", remove_in="2.0.0")' not in result
+        and "@replace_me(since='1.0.0', remove_in='2.0.0')" not in result
+    )
+    assert "def old_func(x):" in result
+    assert (
+        '@replace_me(since="1.5.0", remove_in="3.0.0")' in result
+        or "@replace_me(since='1.5.0', remove_in='3.0.0')" in result
+    )
+    assert (
+        '@replace_me(since="2.0.0")' in result or "@replace_me(since='2.0.0')" in result
+    )
+
+    # Current version is 3.0.0, so both old_func and newer_func should be removed
+    result = remove_decorators(source, current_version="3.0.0")
+    assert (
+        '@replace_me(since="1.0.0", remove_in="2.0.0")' not in result
+        and "@replace_me(since='1.0.0', remove_in='2.0.0')" not in result
+    )
+    assert (
+        '@replace_me(since="1.5.0", remove_in="3.0.0")' not in result
+        and "@replace_me(since='1.5.0', remove_in='3.0.0')" not in result
+    )
+    assert "def old_func(x):" in result
+    assert "def newer_func(y):" in result
+    assert (
+        '@replace_me(since="2.0.0")' in result or "@replace_me(since='2.0.0')" in result
+    )
+
+    # Current version is 1.0.0, so nothing should be removed
+    result = remove_decorators(source, current_version="1.0.0")
+    assert (
+        '@replace_me(since="1.0.0", remove_in="2.0.0")' in result
+        or "@replace_me(since='1.0.0', remove_in='2.0.0')" in result
+    )
+    assert (
+        '@replace_me(since="1.5.0", remove_in="3.0.0")' in result
+        or "@replace_me(since='1.5.0', remove_in='3.0.0')" in result
+    )
+    assert (
+        '@replace_me(since="2.0.0")' in result or "@replace_me(since='2.0.0')" in result
+    )
+
+
+def test_remove_in_with_all_flag():
+    """Test that --all flag overrides remove_in logic."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="1.0.0", remove_in="2.0.0")
+def old_func(x):
+    return x + 1
+
+@replace_me(since="1.5.0", remove_in="3.0.0")
+def newer_func(y):
+    return y * 2
+"""
+
+    # With remove_all=True, all decorators should be removed regardless of current_version
+    result = remove_decorators(source, current_version="1.0.0", remove_all=True)
+    assert "@replace_me" not in result
+    assert "def old_func(x):" in result
+    assert "def newer_func(y):" in result
+
+
+def test_remove_in_without_current_version():
+    """Test that remove_in is ignored when no current_version is provided."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="1.0.0", remove_in="2.0.0")
+def old_func(x):
+    return x + 1
+"""
+
+    # Without current_version, remove_in should be ignored
+    result = remove_decorators(source)
+    assert (
+        '@replace_me(since="1.0.0", remove_in="2.0.0")' in result
+        or "@replace_me(since='1.0.0', remove_in='2.0.0')" in result
+    )
+
+    # With before_version but no current_version, should use before_version logic
+    result = remove_decorators(source, before_version="2.0.0")
+    assert (
+        '@replace_me(since="1.0.0", remove_in="2.0.0")' not in result
+        and "@replace_me(since='1.0.0', remove_in='2.0.0')" not in result
+    )
+    assert "def old_func(x):" in result
+
+
+def test_mixed_remove_in_and_before_version():
+    """Test behavior when both remove_in and before_version logic could apply."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="1.0.0", remove_in="2.0.0")
+def func_with_remove_in(x):
+    return x + 1
+
+@replace_me(since="0.5.0")
+def func_with_only_since(y):
+    return y * 2
+"""
+
+    # Current version 2.0.0, before_version 1.5.0
+    # func_with_remove_in should be removed due to remove_in condition
+    # func_with_only_since should be removed due to before_version condition
+    result = remove_decorators(source, current_version="2.0.0", before_version="1.5.0")
+    assert (
+        '@replace_me(since="1.0.0", remove_in="2.0.0")' not in result
+        and "@replace_me(since='1.0.0', remove_in='2.0.0')" not in result
+    )
+    assert (
+        '@replace_me(since="0.5.0")' not in result
+        and "@replace_me(since='0.5.0')" not in result
+    )
+    assert "def func_with_remove_in(x):" in result
+    assert "def func_with_only_since(y):" in result

@@ -27,10 +27,57 @@ Run `dissolve --help` for more information on available commands and options.
 
 import ast
 import glob
+import importlib.metadata
 import importlib.util
 import os
 from collections.abc import Callable
-from typing import Union
+from pathlib import Path
+from typing import Optional, Union
+
+
+def _detect_package_version(start_path: str = ".") -> Optional[str]:
+    """Detect the current package version using importlib.metadata.
+
+    This function tries to find Python packages in the directory structure
+    and get their version from the installed package metadata.
+
+    Args:
+        start_path: Starting directory to search for package information.
+
+    Returns:
+        The detected version string, or None if not found.
+    """
+    start_dir = Path(start_path).resolve()
+
+    # Walk up the directory tree looking for Python packages
+    current_dir = start_dir
+    for _ in range(10):  # Limit search depth to avoid infinite loops
+        # Look for Python packages (directories with __init__.py)
+        try:
+            python_packages = [
+                d
+                for d in current_dir.iterdir()
+                if d.is_dir() and (d / "__init__.py").exists()
+            ]
+
+            for package_dir in python_packages:
+                package_name = package_dir.name
+                try:
+                    return importlib.metadata.version(package_name)
+                except importlib.metadata.PackageNotFoundError:
+                    continue  # Try next package
+
+        except OSError:
+            # Directory access issue, move up
+            pass
+
+        # Move up one directory
+        parent = current_dir.parent
+        if parent == current_dir:  # Reached filesystem root
+            break
+        current_dir = parent
+
+    return None
 
 
 def _resolve_python_object_path(path: str) -> list[str]:
@@ -299,6 +346,11 @@ def main(argv: Union[list[str], None] = None) -> int:
         action="store_true",
         help="Check if files have removable decorators without modifying them (exit 1 if changes needed)",
     )
+    remove_parser.add_argument(
+        "--current-version",
+        metavar="VERSION",
+        help="Current package version for remove_in comparison (auto-detected if not provided)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -324,14 +376,42 @@ def main(argv: Union[list[str], None] = None) -> int:
         if args.check and args.write:
             parser.error("--check and --write cannot be used together")
 
+        # Get current version: explicit arg > auto-detected > None
+        current_version = getattr(args, "current_version", None)
+        version_source = "specified"
+
+        if current_version is None:
+            # Try to auto-detect version from the first file's project directory
+            if args.paths:
+                first_file = (
+                    _expand_paths(args.paths[:1], as_module=args.module)[0]
+                    if _expand_paths(args.paths[:1], as_module=args.module)
+                    else None
+                )
+                if first_file:
+                    file_dir = os.path.dirname(os.path.abspath(first_file))
+                    current_version = _detect_package_version(file_dir)
+                    version_source = "auto-detected"
+
+        # Print version information
+        if current_version:
+            print(f"Using {version_source} package version: {current_version}")
+        else:
+            print(
+                "No package version detected. Decorators with 'remove_in' will not be removed."
+            )
+            print("Hint: Use --current-version to specify the current package version.")
+
         def remove_processor(filepath: str) -> tuple[str, str]:
             with open(filepath) as f:
                 original = f.read()
+
             result = remove_from_file(
                 filepath,
                 before_version=args.before,
                 remove_all=args.all,
                 write=False,
+                current_version=current_version,
             )
             return original, result
 

@@ -50,13 +50,18 @@ class ReplaceRemover(ast.NodeTransformer):
     Attributes:
         before_version: Remove decorators with versions older than this.
         remove_all: If True, remove all @replace_me decorators regardless of version.
+        current_version: Current package version for remove_in comparison.
     """
 
     def __init__(
-        self, before_version: Optional[str] = None, remove_all: bool = False
+        self,
+        before_version: Optional[str] = None,
+        remove_all: bool = False,
+        current_version: Optional[str] = None,
     ) -> None:
         self.before_version = before_version
         self.remove_all = remove_all
+        self.current_version = current_version
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Process function definitions to remove @replace_me decorators."""
@@ -104,7 +109,20 @@ class ReplaceRemover(ast.NodeTransformer):
         if self.remove_all:
             return True
 
+        # Check remove_in parameter first
+        remove_in_version = self._extract_remove_in_version(decorator)
+        if remove_in_version is not None and self.current_version is not None:
+            try:
+                # Only remove if current version >= remove_in version
+                return version.parse(self.current_version) >= version.parse(
+                    remove_in_version
+                )
+            except Exception:
+                # If version parsing fails, fall through to other checks
+                pass
+
         if self.before_version is None:
+            # Default behavior: don't remove unless remove_in condition is met or remove_all is True
             return False
 
         # Extract version from decorator
@@ -150,9 +168,34 @@ class ReplaceRemover(ast.NodeTransformer):
 
         return None
 
+    def _extract_remove_in_version(self, decorator: ast.AST) -> Optional[str]:
+        """Extract the 'remove_in' version from a @replace_me decorator.
+
+        Args:
+            decorator: The decorator AST node.
+
+        Returns:
+            The remove_in version string if found, None otherwise.
+        """
+        if not isinstance(decorator, ast.Call):
+            return None
+
+        # Check keyword arguments
+        for keyword in decorator.keywords:
+            if keyword.arg == "remove_in":
+                if isinstance(keyword.value, ast.Constant):
+                    return str(keyword.value.value)
+                elif isinstance(keyword.value, ast.Str):  # Python < 3.8
+                    return keyword.value.s
+
+        return None
+
 
 def remove_decorators(
-    source: str, before_version: Optional[str] = None, remove_all: bool = False
+    source: str,
+    before_version: Optional[str] = None,
+    remove_all: bool = False,
+    current_version: Optional[str] = None,
 ) -> str:
     """Remove @replace_me decorators from Python source code.
 
@@ -166,6 +209,8 @@ def remove_decorators(
             Version comparison uses standard semantic versioning rules.
         remove_all: Remove all @replace_me decorators regardless of version.
             If True, before_version is ignored.
+        current_version: Current package version for remove_in comparison.
+            Used to determine if decorators with remove_in should be removed.
 
     Returns:
         Modified source code with decorators removed.
@@ -190,7 +235,11 @@ def remove_decorators(
     """
     tree = ast.parse(source)
 
-    remover = ReplaceRemover(before_version=before_version, remove_all=remove_all)
+    remover = ReplaceRemover(
+        before_version=before_version,
+        remove_all=remove_all,
+        current_version=current_version,
+    )
     new_tree = remover.visit(tree)
 
     result = ast.unparse(new_tree)
@@ -207,6 +256,7 @@ def remove_from_file(
     before_version: Optional[str] = None,
     remove_all: bool = False,
     write: bool = False,
+    current_version: Optional[str] = None,
 ) -> str:
     """Remove @replace_me decorators from a Python file.
 
@@ -220,6 +270,8 @@ def remove_from_file(
         remove_all: Remove all @replace_me decorators regardless of version.
             If True, before_version is ignored.
         write: Whether to write changes back to the file.
+        current_version: Current package version for remove_in comparison.
+            Used to determine if decorators with remove_in should be removed.
 
     Returns:
         Modified source code with decorators removed.
@@ -241,7 +293,10 @@ def remove_from_file(
         source = f.read()
 
     new_source = remove_decorators(
-        source, before_version=before_version, remove_all=remove_all
+        source,
+        before_version=before_version,
+        remove_all=remove_all,
+        current_version=current_version,
     )
 
     if write and new_source != source:
