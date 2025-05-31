@@ -38,7 +38,10 @@ from typing import Any, Callable, Optional, TypeVar, Union, cast
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def replace_me(since: Optional[Union[tuple[int, ...], str]] = None) -> Callable[[F], F]:
+def replace_me(
+    since: Optional[Union[tuple[int, ...], str]] = None,
+    remove_in: Optional[Union[tuple[int, ...], str]] = None,
+) -> Callable[[F], F]:
     """Mark a function as deprecated and suggest its replacement.
 
     This decorator analyzes the decorated function's return statement to
@@ -50,6 +53,10 @@ def replace_me(since: Optional[Union[tuple[int, ...], str]] = None) -> Callable[
         since: Version when the function was deprecated. Can be a string
             (e.g., "2.0.0") or a tuple of integers (e.g., (2, 0, 0)).
             If provided, the warning will mention this version.
+        remove_in: Version when the decorator should be removed. Can be a string
+            (e.g., "2.0.0") or a tuple of integers (e.g., (2, 0, 0)).
+            If provided, 'dissolve remove' will only remove this decorator
+            when the current package version is at or after this version.
 
     Returns:
         A decorator function that wraps the original function with deprecation
@@ -79,6 +86,12 @@ def replace_me(since: Optional[Union[tuple[int, ...], str]] = None) -> Callable[
             @replace_me(since=(2, 0))
             def calculate(x, y, operation="add"):
                 return math_ops[operation](x, y)
+
+        With removal version::
+
+            @replace_me(since="1.0.0", remove_in="2.0.0")
+            def old_function(x):
+                return new_function(x)
 
     Note:
         - The decorator expects the function body to contain a single return
