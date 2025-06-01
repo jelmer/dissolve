@@ -1,34 +1,7 @@
 dissolve
 ========
 
-The dissolve library helps users replaces calls to deprecated library APIs.
-
-Optional Dependency Usage
-=========================
-
-If you don't want to add a runtime dependency on dissolve, you can define a fallback implementation:
-
-.. code-block:: python
-
-   try:
-       from dissolve import replace_me
-   except ModuleNotFoundError:
-       import warnings
-       
-       def replace_me(since=None, remove_in=None):
-           def decorator(func):
-               def wrapper(*args, **kwargs):
-                   msg = f"{func.__name__} has been deprecated"
-                   if since:
-                       msg += f" since {since}"
-                   if remove_in:
-                       msg += f" and will be removed in {remove_in}"
-                   warnings.warn(msg, DeprecationWarning, stacklevel=2)
-                   return func(*args, **kwargs)
-               return wrapper
-           return decorator
-
-This allows your code to work whether or not dissolve is installed. When dissolve is present, you get full deprecation warnings with replacement suggestions and migration support. When it's not installed, you still get basic deprecation warnings.
+The dissolve library helps users replace calls to deprecated library APIs by automatically substituting the deprecated function call with the body of the replacement function.
 
 Example
 =======
@@ -205,3 +178,32 @@ When errors are found:
 
 The command exits with code 1 if any errors are found, making it useful in CI
 pipelines to ensure all deprecations are properly formatted.
+
+
+Optional Dependency Usage
+=========================
+
+If you don't want to add a runtime dependency on dissolve, you can define a fallback implementation that mimics dissolve's basic deprecation warning functionality:
+
+.. code-block:: python
+
+   try:
+       from dissolve import replace_me
+   except ModuleNotFoundError:
+       import warnings
+       
+       def replace_me(since=None, remove_in=None):
+           def decorator(func):
+               def wrapper(*args, **kwargs):
+                   msg = f"{func.__name__} has been deprecated"
+                   if since:
+                       msg += f" since {since}"
+                   if remove_in:
+                       msg += f" and will be removed in {remove_in}"
+                   msg += ". Consider running 'dissolve migrate' to automatically update your code."
+                   warnings.warn(msg, DeprecationWarning, stacklevel=2)
+                   return func(*args, **kwargs)
+               return wrapper
+           return decorator
+
+This fallback implementation provides the same decorator interface as dissolve's ``replace_me`` decorator. When dissolve is installed, you get full deprecation warnings with replacement suggestions and migration support. When it's not installed, you still get basic deprecation warnings that include a suggestion to use dissolve's migration tool.
