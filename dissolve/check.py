@@ -22,7 +22,7 @@ import ast
 from dataclasses import dataclass
 
 from .ast_helpers import is_replace_me_decorator
-from .collector import DeprecatedFunctionCollector
+from .extractor import extract_replacement_from_body
 from .types import ReplacementExtractionError
 
 
@@ -65,14 +65,14 @@ class ReplacementChecker(ast.NodeVisitor):
                 self.checked_functions.append(node.name)
 
                 # Use the same logic as migrate to test extraction
-                collector = DeprecatedFunctionCollector()
                 try:
-                    collector._extract_replacement_from_body(node)
+                    extract_replacement_from_body(node)
                     # If we get here, the function can be processed successfully
                 except ReplacementExtractionError as e:
                     # Capture the detailed error message from the exception
                     self.errors.append(str(e))
                 break
+        self.generic_visit(node)
 
 
 def check_replacements(source: str) -> CheckResult:

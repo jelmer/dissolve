@@ -56,6 +56,7 @@ def deprecated_function(x, y):
 A collection of modules that parse, analyze, and transform Python AST:
 
 - **Collector** (`collector.py`): Discovers `@replace_me` decorated functions and extracts replacement information
+- **Extractor** (`extractor.py`): Functions for extracting replacement expressions from function bodies
 - **Replacer** (`replacer.py`): Transforms function calls to use replacement expressions
 - **AST Utilities** (`ast_utils.py`, `ast_helpers.py`): Low-level AST manipulation helpers
 
@@ -148,6 +149,12 @@ Extensive use of `ast.NodeVisitor` and `ast.NodeTransformer`:
 - `FunctionCallReplacer`: Transforms function calls
 - `ReplaceRemover`: Removes decorators
 - `ContextAnalyzer`: Analyzes module context
+
+### Functional Design
+Replacement extraction logic is implemented as pure functions rather than classes:
+- `extract_replacement_from_body()`: Main extraction function
+- Helper functions for validation and substitution
+- Stateless design promotes testability and reusability
 
 ### Strategy Pattern
 Different migration strategies:

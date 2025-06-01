@@ -172,7 +172,7 @@ def _expand_paths(paths: list[str], as_module: bool = False) -> list[str]:
 
 def _process_files_common(
     files: list[str],
-    process_func: Callable[[str], tuple[str, str]],
+    process_func: Callable[[str], tuple[str, str, bool]],
     check: bool,
     write: bool,
     operation_name: str,
@@ -183,7 +183,7 @@ def _process_files_common(
 
     Args:
         files: List of file paths to process
-        process_func: Function to process each file, returns (original, result)
+        process_func: Function to process each file, returns (original, result) or (original, result, failed)
         check: Whether to run in check mode
         write: Whether to write changes back
         operation_name: Name of operation for error messages
@@ -192,50 +192,50 @@ def _process_files_common(
     Returns:
         Exit code: 0 for success, 1 for errors or changes needed in check mode
     """
-    import sys
-
     needs_changes = False
+    any_failed = False
     for filepath in files:
-        try:
-            original, result = process_func(filepath)
+        original, result, failed = process_func(filepath)
+        if failed:
+            any_failed = True
 
-            # Determine if changes are needed
-            if use_ast_comparison and check:
-                # Compare AST structure for semantic changes (ignores formatting)
-                try:
-                    original_tree = ast.parse(original)
-                    result_tree = ast.parse(result)
-                    has_changes = ast.dump(original_tree) != ast.dump(result_tree)
-                except SyntaxError:
-                    # If parsing fails, fall back to text comparison
-                    has_changes = result != original
-            else:
+        # Determine if changes are needed
+        if use_ast_comparison and check:
+            # Compare AST structure for semantic changes (ignores formatting)
+            try:
+                original_tree = ast.parse(original)
+                result_tree = ast.parse(result)
+                has_changes = ast.dump(original_tree) != ast.dump(result_tree)
+            except SyntaxError:
+                # If parsing fails, fall back to text comparison
                 has_changes = result != original
+        else:
+            has_changes = result != original
 
-            if check:
-                # Check mode: just report if changes are needed
-                if has_changes:
-                    print(f"{filepath}: needs {operation_name}")
-                    needs_changes = True
-                else:
-                    print(f"{filepath}: up to date")
-            elif write:
-                # Write mode: update file if changed
-                if has_changes:
-                    with open(filepath, "w") as f:
-                        f.write(result)
-                    print(f"Modified: {filepath}")
-                else:
-                    print(f"Unchanged: {filepath}")
+        if check:
+            # Check mode: just report if changes are needed
+            if has_changes:
+                print(f"{filepath}: needs {operation_name}")
+                needs_changes = True
             else:
-                # Default: print to stdout
-                print(f"# {operation_name.title()}: {filepath}")
-                print(result)
-                print()
-        except Exception as e:
-            print(f"Error processing {filepath}: {e}", file=sys.stderr)
-            return 1
+                print(f"{filepath}: up to date")
+        elif write:
+            # Write mode: update file if changed
+            if has_changes:
+                with open(filepath, "w") as f:
+                    f.write(result)
+                print(f"Modified: {filepath}")
+            else:
+                print(f"Unchanged: {filepath}")
+        else:
+            # Default: print to stdout
+            print(f"# {operation_name.title()}: {filepath}")
+            print(result)
+            print()
 
+    # Exit with code 2 if any processing failed (e.g., unmigrated calls)
+    if any_failed:
+        return 2
     # In check mode, exit with code 1 if any files need changes
     return 1 if check and needs_changes else 0
 
@@ -295,6 +295,12 @@ def main(argv: Union[list[str], None] = None) -> int:
         "--interactive",
         action="store_true",
         help="Interactively confirm each replacement before applying",
+    )
+    migrate_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (show when functions are successfully inlined)",
     )
 
     # Remove command
@@ -375,13 +381,42 @@ def main(argv: Union[list[str], None] = None) -> int:
         if args.interactive and args.check:
             parser.error("--interactive and --check cannot be used together")
 
-        def migrate_processor(filepath: str) -> tuple[str, str]:
-            with open(filepath) as f:
-                original = f.read()
-            result = migrate_file_with_imports(
-                filepath, write=False, interactive=args.interactive
-            )
-            return original, result
+        # Set up logging level based on verbose flag
+        if args.verbose:
+            import logging
+
+            logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+        def migrate_processor(filepath: str) -> tuple[str, str, bool]:
+            import logging
+
+            # Custom logging handler to detect unmigrated calls
+            class UnmigratedCallHandler(logging.Handler):
+                def __init__(self):
+                    super().__init__()
+                    self.found_unmigrated = False
+
+                def emit(self, record):
+                    if "cannot be automatically migrated" in record.getMessage():
+                        self.found_unmigrated = True
+
+            handler = UnmigratedCallHandler()
+            handler.setLevel(logging.WARNING)
+            logger = logging.getLogger()
+            logger.addHandler(handler)
+
+            try:
+                with open(filepath) as f:
+                    original = f.read()
+                result = migrate_file_with_imports(
+                    filepath,
+                    write=False,
+                    interactive=args.interactive,
+                    verbose=args.verbose,
+                )
+                return original, result, handler.found_unmigrated
+            finally:
+                logger.removeHandler(handler)
 
         files = _expand_paths(args.paths, as_module=args.module)
         return _process_files_common(
@@ -417,7 +452,7 @@ def main(argv: Union[list[str], None] = None) -> int:
             )
             print("Hint: Use --current-version to specify the current package version.")
 
-        def remove_processor(filepath: str) -> tuple[str, str]:
+        def remove_processor(filepath: str) -> tuple[str, str, bool]:
             with open(filepath) as f:
                 original = f.read()
 
@@ -428,7 +463,7 @@ def main(argv: Union[list[str], None] = None) -> int:
                 write=False,
                 current_version=current_version,
             )
-            return original, result
+            return original, result, False
 
         files = _expand_paths(args.paths, as_module=args.module)
         return _process_files_common(
@@ -456,10 +491,14 @@ def main(argv: Union[list[str], None] = None) -> int:
                     print(f"  {error}")
         return 1 if errors_found else 0
     elif args.command == "info":
+        from .extractor import extract_replacement_from_body
         from .migrate import DeprecatedFunctionCollector
+        from .types import ReplacementExtractionError
 
         files = _expand_paths(args.paths, as_module=args.module)
         total_functions = 0
+        inlinable_count = 0
+        non_inlinable_count = 0
 
         for filepath in files:
             try:
@@ -470,16 +509,44 @@ def main(argv: Union[list[str], None] = None) -> int:
                 collector = DeprecatedFunctionCollector()
                 collector.visit(tree)
 
-                if collector.replacements:
+                if collector.replacements or collector.unreplaceable:
                     print(f"\n{filepath}:")
+
+                    # First, show inlinable functions
                     for func_name, replacement in collector.replacements.items():
+                        # Check if function can be inlined by trying to extract replacement
+                        inline_status = ""
+
+                        if replacement.func_def:
+                            try:
+                                extract_replacement_from_body(replacement.func_def)
+                            except ReplacementExtractionError as e:
+                                inline_status = (
+                                    f" [not inlinable: {e.failure_reason.value}]"
+                                )
+                                non_inlinable_count += 1
+                            else:
+                                inlinable_count += 1
+                        else:
+                            # If no func_def, we can't determine inlinability
+                            inline_status = " [not inlinable: unknown]"
+                            non_inlinable_count += 1
+
                         # Clean up the replacement expression for display
                         clean_expr = replacement.replacement_expr
                         # Replace placeholder patterns more carefully
                         import re
 
                         clean_expr = re.sub(r"\{(\w+)\}", r"\1", clean_expr)
-                        print(f"  {func_name}() -> {clean_expr}")
+                        print(f"  {func_name}() -> {clean_expr}{inline_status}")
+                        total_functions += 1
+
+                    # Then, show unreplaceable functions
+                    for func_name, unreplaceable in collector.unreplaceable.items():
+                        print(
+                            f"  {func_name}() [not inlinable: {unreplaceable.reason.value}]"
+                        )
+                        non_inlinable_count += 1
                         total_functions += 1
 
             except OSError as e:
@@ -493,6 +560,8 @@ def main(argv: Union[list[str], None] = None) -> int:
                 return 1
 
         print(f"\nTotal deprecated functions found: {total_functions}")
+        print(f"  Inlinable: {inlinable_count}")
+        print(f"  Not inlinable: {non_inlinable_count}")
         return 0
     else:
         parser.print_help()

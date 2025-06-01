@@ -19,7 +19,7 @@ with their suggested alternatives in Python AST nodes.
 """
 
 import ast
-from typing import Callable, Literal, Union
+from typing import Callable, Literal, Optional, Union
 
 from .ast_utils import substitute_parameters
 from .collector import ReplaceInfo
@@ -36,17 +36,52 @@ class FunctionCallReplacer(ast.NodeTransformer):
         replacements: Mapping from function names to their replacement info.
     """
 
-    def __init__(self, replacements: dict[str, ReplaceInfo]) -> None:
+    def __init__(
+        self,
+        replacements: dict[str, ReplaceInfo],
+        all_deprecated: Optional[dict[str, ReplaceInfo]] = None,
+        verbose: bool = False,
+    ) -> None:
         self.replacements = replacements
+        self.new_functions_used: set[str] = set()
+        self.all_deprecated = all_deprecated or {}
+        self.non_migratable_calls: list[
+            tuple[str, int, str]
+        ] = []  # (func_name, line_number, reason)
+        self.successful_inlinings: list[
+            tuple[str, int]
+        ] = []  # (func_name, line_number)
+        self.verbose = verbose
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
         """Visit Call nodes and replace deprecated function calls."""
         self.generic_visit(node)
 
         func_name = self._get_function_name(node)
-        if func_name and func_name in self.replacements:
-            replacement = self.replacements[func_name]
-            return self._create_replacement_node(node, replacement)
+        if func_name:
+            if func_name in self.replacements:
+                replacement = self.replacements[func_name]
+                # Track successful inlining
+                line_num = getattr(node, "lineno", 0)
+                self.successful_inlinings.append((func_name, line_num))
+                return self._create_replacement_node(node, replacement)
+            elif func_name in self.all_deprecated:
+                # This is a deprecated function that couldn't be migrated
+                line_num = getattr(node, "lineno", 0)
+                from .extractor import extract_replacement_from_body
+                from .types import ReplacementExtractionError
+
+                replacement = self.all_deprecated[func_name]
+                if replacement.func_def:
+                    try:
+                        extract_replacement_from_body(replacement.func_def)
+                        reason = "unknown"
+                    except ReplacementExtractionError as e:
+                        reason = e.failure_reason.value
+                else:
+                    reason = "unknown function definition"
+
+                self.non_migratable_calls.append((func_name, line_num, reason))
         return node
 
     def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
@@ -91,6 +126,9 @@ class FunctionCallReplacer(ast.NodeTransformer):
             # Parse the expression
             replacement_ast = ast.parse(temp_expr, mode="eval").body
 
+            # Track new functions used in the replacement
+            self._track_new_functions(replacement_ast)
+
             # Substitute parameters using AST transformation
             result = substitute_parameters(replacement_ast, param_map)
 
@@ -113,25 +151,88 @@ class FunctionCallReplacer(ast.NodeTransformer):
         Returns:
             Dictionary mapping parameter names to their AST representations.
         """
-        # For now, we'll do a simple mapping based on position
-        # This could be enhanced to handle keyword arguments properly
         param_map = {}
 
-        # Extract parameter names from replacement expression
-        import re
+        if not replacement.func_def:
+            # Fallback to simple regex extraction if function definition is not available
+            import re
 
-        param_names = re.findall(r"\{(\w+)\}", replacement.replacement_expr)
+            param_names = re.findall(r"\{(\w+)\}", replacement.replacement_expr)
 
-        # Map positional arguments
-        for i, (param_name, arg) in enumerate(zip(param_names, call.args)):
-            param_map[param_name] = arg
+            # Map positional arguments
+            for i, (param_name, arg) in enumerate(zip(param_names, call.args)):
+                param_map[param_name] = arg
 
-        # Map keyword arguments
+            # Map keyword arguments
+            for keyword in call.keywords:
+                if keyword.arg and keyword.arg in param_names:
+                    param_map[keyword.arg] = keyword.value
+
+            return param_map
+
+        # Use function definition to properly map parameters
+        func_def = replacement.func_def
+        args = func_def.args
+
+        # Map regular positional arguments
+        regular_args = args.args
+        call_args = list(call.args)
+
+        # Handle regular parameters first
+        for i, param in enumerate(regular_args):
+            if i < len(call_args):
+                param_map[param.arg] = call_args[i]
+            else:
+                # Check for default values
+                defaults_offset = (
+                    len(regular_args) - len(args.defaults)
+                    if args.defaults
+                    else len(regular_args)
+                )
+                if i >= defaults_offset and args.defaults:
+                    default_index = i - defaults_offset
+                    param_map[param.arg] = args.defaults[default_index]
+
+        # Handle *args if present
+        if args.vararg:
+            vararg_name = args.vararg.arg
+            # Collect remaining arguments into a tuple
+            remaining_args = call_args[len(regular_args) :]
+
+            # Create a tuple node with remaining arguments
+            if remaining_args:
+                tuple_node = ast.Tuple(elts=remaining_args, ctx=ast.Load())
+            else:
+                tuple_node = ast.Tuple(elts=[], ctx=ast.Load())
+
+            param_map[vararg_name] = tuple_node
+
+        # Handle keyword arguments
         for keyword in call.keywords:
-            if keyword.arg and keyword.arg in param_names:
-                param_map[keyword.arg] = keyword.value
+            if keyword.arg:
+                # Check if this is a regular parameter
+                for param in regular_args:
+                    if param.arg == keyword.arg:
+                        param_map[keyword.arg] = keyword.value
+                        break
 
         return param_map
+
+    def _track_new_functions(self, node: ast.AST) -> None:
+        """Track function names that are used in replacement expressions."""
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                self.new_functions_used.add(child.func.id)
+            elif isinstance(child, ast.Attribute):
+                # Track module.function patterns
+                module_parts: list[str] = []
+                current: ast.expr = child
+                while isinstance(current, ast.Attribute):
+                    module_parts.insert(0, current.attr)
+                    current = current.value
+                if isinstance(current, ast.Name):
+                    module_parts.insert(0, current.id)
+                    self.new_functions_used.add(".".join(module_parts))
 
     def _create_property_replacement_node(
         self, original_attr: ast.Attribute, replacement: ReplaceInfo
@@ -146,15 +247,19 @@ class FunctionCallReplacer(ast.NodeTransformer):
             AST node representing the replacement expression with the object
             reference substituted.
         """
-        # For properties, we need to substitute 'self' with the actual object
+        # For properties, the replacement expression contains {self} placeholders
+        # We need to substitute {self} with the actual object being accessed
         temp_expr = replacement.replacement_expr
 
-        # Replace 'self' placeholder with the actual object
+        # Convert {self} placeholders to valid Python identifiers for parsing
         temp_expr = temp_expr.replace("{self}", "self")
 
         try:
             # Parse the replacement expression
             replacement_ast = ast.parse(temp_expr, mode="eval").body
+
+            # Track new functions used in the replacement
+            self._track_new_functions(replacement_ast)
 
             # Substitute 'self' with the actual object being accessed
             param_map = {"self": original_attr.value}
@@ -186,8 +291,10 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
         prompt_func: Union[
             Callable[[str, str], Literal["y", "n", "a", "q"]], None
         ] = None,
+        all_deprecated: Optional[dict[str, ReplaceInfo]] = None,
+        verbose: bool = False,
     ) -> None:
-        super().__init__(replacements)
+        super().__init__(replacements, all_deprecated, verbose)
         self.replace_all = False
         self.quit = False
         self.prompt_func = prompt_func or self._default_prompt
