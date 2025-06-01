@@ -357,6 +357,129 @@ def test_remove_check_write_conflict():
         os.unlink(temp_path)
 
 
+def test_info_command():
+    """Test the info command lists deprecations correctly."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="1.0.0")
+def old_function(x, y):
+    return new_function(x, y, default=True)
+
+@replace_me(since="2.0.0")
+def another_deprecated(data):
+    return process_data(data)
+
+def new_function(x, y, default=False):
+    return x + y
+
+def process_data(data):
+    return data
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["info", temp_path])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0
+        assert "old_function() -> new_function(x, y, default=True)" in output
+        assert "another_deprecated() -> process_data(data)" in output
+        assert "Total deprecated functions found: 2" in output
+    finally:
+        os.unlink(temp_path)
+
+
+def test_info_command_no_deprecations():
+    """Test the info command with no deprecated functions."""
+    source = """
+def regular_function(x):
+    return x + 1
+
+def another_function(data):
+    return data
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["info", temp_path])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0
+        assert "Total deprecated functions found: 0" in output
+    finally:
+        os.unlink(temp_path)
+
+
+def test_info_command_file_not_found():
+    """Test the info command with a non-existent file."""
+    # Capture stderr
+    old_stderr = sys.stderr
+    sys.stderr = StringIO()
+
+    try:
+        exit_code = main(["info", "non_existent_file.py"])
+        error_output = sys.stderr.getvalue()
+    finally:
+        sys.stderr = old_stderr
+
+    assert exit_code == 1
+    assert "Error reading file non_existent_file.py:" in error_output
+    assert "No such file or directory" in error_output
+
+
+def test_info_command_syntax_error():
+    """Test the info command with a file containing syntax errors."""
+    source = """
+from dissolve import replace_me
+
+@replace_me(since="1.0.0")
+def broken_function(x):
+    return new_function(x
+    # Missing closing parenthesis
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stderr
+        old_stderr = sys.stderr
+        sys.stderr = StringIO()
+
+        try:
+            exit_code = main(["info", temp_path])
+            error_output = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+
+        assert exit_code == 1
+        assert f"Syntax error in {temp_path}:" in error_output
+    finally:
+        os.unlink(temp_path)
+
+
 def test_migrate_module_flag_no_changes():
     """Test migrate -m with a module that doesn't need migration."""
     source = """
