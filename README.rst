@@ -1,7 +1,9 @@
 dissolve
 ========
 
-The dissolve library helps users replace calls to deprecated library APIs by automatically substituting the deprecated function call with the body of the replacement function.
+The dissolve library helps users replace calls to deprecated library APIs by
+automatically substituting the deprecated function call with the body of the
+deprecated function.
 
 Example
 =======
@@ -30,6 +32,15 @@ Running this code will yield a warning:
    <stdin>:1: DeprecationWarning: <function inc at 0x7feaf5ead5a0> has been deprecated since 0.1.0; use 'increment(x)' instead
    4
 
+Running the ``dissolve migrate`` command will automatically replace the deprecated function call with the suggested replacement:
+
+.. code-block:: console
+
+   $ dissolve migrate myproject/utils.py
+   Migrated: myproject/utils.py
+   ...
+   result = increment(x=3)
+   ...
 
 dissolve migrate
 ================
