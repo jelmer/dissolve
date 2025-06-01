@@ -256,6 +256,7 @@ def main(argv: Union[list[str], None] = None) -> int:
             $ python -m dissolve remove myfile.py --all --write
     """
     import argparse
+    import sys
 
     from .check import check_file
     from .migrate import migrate_file_with_imports
@@ -310,6 +311,20 @@ def main(argv: Union[list[str], None] = None) -> int:
         "paths", nargs="+", help="Python files or directories to check"
     )
     check_parser.add_argument(
+        "-m",
+        "--module",
+        action="store_true",
+        help="Treat paths as Python module paths (e.g. package.module)",
+    )
+
+    # Info command
+    info_parser = subparsers.add_parser(
+        "info", help="List all @replace_me decorated functions and their replacements"
+    )
+    info_parser.add_argument(
+        "paths", nargs="+", help="Python files or directories to analyze"
+    )
+    info_parser.add_argument(
         "-m",
         "--module",
         action="store_true",
@@ -440,6 +455,45 @@ def main(argv: Union[list[str], None] = None) -> int:
                 for error in result.errors:
                     print(f"  {error}")
         return 1 if errors_found else 0
+    elif args.command == "info":
+        from .migrate import DeprecatedFunctionCollector
+
+        files = _expand_paths(args.paths, as_module=args.module)
+        total_functions = 0
+
+        for filepath in files:
+            try:
+                with open(filepath) as f:
+                    source = f.read()
+
+                tree = ast.parse(source)
+                collector = DeprecatedFunctionCollector()
+                collector.visit(tree)
+
+                if collector.replacements:
+                    print(f"\n{filepath}:")
+                    for func_name, replacement in collector.replacements.items():
+                        # Clean up the replacement expression for display
+                        clean_expr = replacement.replacement_expr
+                        # Replace placeholder patterns more carefully
+                        import re
+
+                        clean_expr = re.sub(r"\{(\w+)\}", r"\1", clean_expr)
+                        print(f"  {func_name}() -> {clean_expr}")
+                        total_functions += 1
+
+            except OSError as e:
+                print(f"Error reading file {filepath}: {e}", file=sys.stderr)
+                return 1
+            except SyntaxError as e:
+                print(f"Syntax error in {filepath}: {e}", file=sys.stderr)
+                return 1
+            except UnicodeDecodeError as e:
+                print(f"Encoding error in {filepath}: {e}", file=sys.stderr)
+                return 1
+
+        print(f"\nTotal deprecated functions found: {total_functions}")
+        return 0
     else:
         parser.print_help()
         return 1
