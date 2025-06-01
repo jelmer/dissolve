@@ -1,0 +1,161 @@
+# Copyright (C) 2022 Jelmer Vernooij <jelmer@samba.org>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Collection functionality for @replace_me decorated functions.
+
+This module provides tools to collect and analyze functions decorated with
+@replace_me, extracting replacement expressions and import information.
+"""
+
+import ast
+from typing import Union
+
+from .ast_helpers import is_replace_me_decorator
+from .types import ReplacementExtractionError, ReplacementFailureReason
+
+
+class ReplaceInfo:
+    """Information about a function that should be replaced.
+
+    Attributes:
+        old_name: The name of the deprecated function.
+        replacement_expr: The replacement expression template with parameter
+            placeholders in the format {param_name}.
+    """
+
+    def __init__(self, old_name: str, replacement_expr: str) -> None:
+        self.old_name = old_name
+        self.replacement_expr = replacement_expr
+
+
+class ImportInfo:
+    """Information about imported names.
+
+    Attributes:
+        module: The module being imported from.
+        names: List of (name, alias) tuples for imported names.
+    """
+
+    def __init__(self, module: str, names: list[tuple[str, Union[str, None]]]) -> None:
+        self.module = module
+        self.names = names  # List of (name, alias) tuples
+
+
+class DeprecatedFunctionCollector(ast.NodeVisitor):
+    """Collects information about functions decorated with @replace_me.
+
+    This AST visitor traverses Python source code to find:
+    - Functions decorated with @replace_me
+    - Import statements for resolving external deprecated functions
+
+    Attributes:
+        replacements: Mapping from function names to their replacement info.
+        imports: List of import information for module resolution.
+    """
+
+    def __init__(self) -> None:
+        self.replacements: dict[str, ReplaceInfo] = {}
+        self.imports: list[ImportInfo] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        """Process function definitions to find @replace_me decorators."""
+        for decorator in node.decorator_list:
+            if is_replace_me_decorator(decorator):
+                # For the new format, extract replacement from function body
+                replacement_expr = self._extract_replacement_from_body(node)
+                if replacement_expr:
+                    self.replacements[node.name] = ReplaceInfo(
+                        node.name, replacement_expr
+                    )
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        """Collect import information for module resolution."""
+        if node.module:
+            names = [(alias.name, alias.asname) for alias in node.names]
+            self.imports.append(ImportInfo(node.module, names))
+        self.generic_visit(node)
+
+    def _extract_replacement_from_body(
+        self,
+        func_def: Union[ast.FunctionDef, ast.AsyncFunctionDef],
+        raise_on_error: bool = False,
+    ) -> Union[str, None]:
+        """Extract replacement expression from function body.
+
+        Args:
+            func_def: The function definition AST node.
+            raise_on_error: If True, raise ReplacementExtractionError on failure.
+                           If False, return None on failure.
+
+        Returns:
+            The replacement expression with parameter placeholders, or None
+            if no valid replacement can be extracted and raise_on_error is False.
+
+        Raises:
+            ReplacementExtractionError: If no valid replacement can be extracted
+                                      and raise_on_error is True.
+        """
+        if not func_def.body:
+            if raise_on_error:
+                raise ReplacementExtractionError(
+                    func_def.name,
+                    ReplacementFailureReason.COMPLEX_BODY,
+                    "Function has no body",
+                )
+            return None
+
+        if len(func_def.body) != 1:
+            if raise_on_error:
+                raise ReplacementExtractionError(
+                    func_def.name,
+                    ReplacementFailureReason.COMPLEX_BODY,
+                    "Function has multiple statements",
+                )
+            return None
+
+        stmt = func_def.body[0]
+        if not isinstance(stmt, ast.Return):
+            # Special case: pass statement is valid but not extractable
+            if isinstance(stmt, ast.Pass):
+                if raise_on_error:
+                    # For checking purposes, pass statements are considered valid
+                    return None
+                return None
+            if raise_on_error:
+                raise ReplacementExtractionError(
+                    func_def.name,
+                    ReplacementFailureReason.COMPLEX_BODY,
+                    "Function does not have a return statement",
+                )
+            return None
+
+        if not stmt.value:
+            if raise_on_error:
+                raise ReplacementExtractionError(
+                    func_def.name,
+                    ReplacementFailureReason.COMPLEX_BODY,
+                    "Function has empty return statement",
+                )
+            return None
+
+        # Create a template with parameter placeholders
+        replacement_expr = ast.unparse(stmt.value)
+
+        # Replace parameter names with placeholders
+        for arg in func_def.args.args:
+            param_name = arg.arg
+            replacement_expr = replacement_expr.replace(param_name, f"{{{param_name}}}")
+
+        return replacement_expr
