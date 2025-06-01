@@ -88,7 +88,9 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _extract_replacement_from_body(
-        self, func_def: ast.FunctionDef, raise_on_error: bool = False
+        self,
+        func_def: Union[ast.FunctionDef, ast.AsyncFunctionDef],
+        raise_on_error: bool = False,
     ) -> Union[str, None]:
         """Extract replacement expression from function body.
 
