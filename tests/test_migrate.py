@@ -374,3 +374,57 @@ d = old_func(4)
         assert "old_func(2)" in result
         assert "c = new_func(3 * 2)" in result or "c = new_func((3 * 2))" in result
         assert "old_func(4)" in result
+
+    def test_property_replacement(self):
+        """Test that @replace_me works with properties."""
+        source = """
+from dissolve import replace_me
+
+class MyClass:
+    def __init__(self, value):
+        self._value = value
+        
+    @property
+    @replace_me(since="1.0.0")
+    def old_property(self):
+        return self.new_property
+        
+    @property
+    def new_property(self):
+        return self._value * 2
+
+obj = MyClass(5)
+result = obj.old_property
+"""
+
+        result = migrate_source(source.strip())
+
+        # Check that property access is replaced
+        assert "result = obj.new_property" in result
+        # Check that the deprecated property definition remains
+        assert "@replace_me" in result
+        assert "def old_property" in result
+
+    def test_property_with_complex_replacement(self):
+        """Test property replacement with more complex expressions."""
+        source = """
+from dissolve import replace_me
+
+class Calculator:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        
+    @property
+    @replace_me()
+    def old_sum(self):
+        return self.x + self.y + 10
+
+calc = Calculator(3, 7)
+total = calc.old_sum
+"""
+
+        result = migrate_source(source.strip())
+
+        # Check that property access is replaced with the complex expression
+        assert "total = calc.x + calc.y + 10" in result

@@ -47,6 +47,31 @@ def regular_func(z):
     assert "return z - 1" in result
 
 
+def test_remove_property_decorators():
+    """Test removing @replace_me decorators from properties."""
+    source = """
+from dissolve import replace_me
+
+class MyClass:
+    @property
+    @replace_me(since="1.0.0")
+    def old_property(self):
+        return self.new_property
+        
+    @property
+    def new_property(self):
+        return self._value
+"""
+
+    result = remove_decorators(source, remove_all=True)
+
+    # Check that @replace_me is removed but @property remains
+    assert "@replace_me" not in result
+    assert "@property" in result
+    assert "def old_property(self):" in result
+    assert "def new_property(self):" in result
+
+
 def test_remove_before_version():
     """Test removing decorators before a specific version."""
     source = """

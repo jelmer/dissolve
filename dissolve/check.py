@@ -50,23 +50,16 @@ class ReplacementChecker(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """Check function definitions with @replace_me decorators."""
-        for decorator in node.decorator_list:
-            if is_replace_me_decorator(decorator):
-                self.checked_functions.append(node.name)
-
-                # Use the same logic as migrate to test extraction
-                collector = DeprecatedFunctionCollector()
-                try:
-                    collector._extract_replacement_from_body(node, raise_on_error=True)
-                    # If we get here, the function can be processed successfully
-                except ReplacementExtractionError as e:
-                    # Capture the detailed error message from the exception
-                    self.errors.append(str(e))
-                break
+        self._check_decorated_node(node)
         self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         """Check async function definitions with @replace_me decorators."""
+        self._check_decorated_node(node)
+        self.generic_visit(node)
+
+    def _check_decorated_node(self, node) -> None:
+        """Check any decorated node (function or property) with @replace_me decorators."""
         for decorator in node.decorator_list:
             if is_replace_me_decorator(decorator):
                 self.checked_functions.append(node.name)
@@ -80,7 +73,6 @@ class ReplacementChecker(ast.NodeVisitor):
                     # Capture the detailed error message from the exception
                     self.errors.append(str(e))
                 break
-        self.generic_visit(node)
 
 
 def check_replacements(source: str) -> CheckResult:

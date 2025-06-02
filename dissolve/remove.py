@@ -34,7 +34,7 @@ Example:
 """
 
 import ast
-from typing import Optional
+from typing import Optional, Union
 
 from packaging import version
 
@@ -65,26 +65,22 @@ class ReplaceRemover(ast.NodeTransformer):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Process function definitions to remove @replace_me decorators."""
-        # Process the function body first
-        self.generic_visit(node)
-
-        # Filter decorators
-        new_decorators = []
-        for decorator in node.decorator_list:
-            if self._should_remove_decorator(decorator):
-                continue
-            new_decorators.append(decorator)
-
-        node.decorator_list = new_decorators
-        return node
+        return self._process_decorated_node(node)
 
     def visit_AsyncFunctionDef(
         self, node: ast.AsyncFunctionDef
     ) -> ast.AsyncFunctionDef:
         """Process async function definitions to remove @replace_me decorators."""
-        # Handle async functions the same way
+        return self._process_decorated_node(node)
+
+    def _process_decorated_node(
+        self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]
+    ) -> Union[ast.FunctionDef, ast.AsyncFunctionDef]:
+        """Process any decorated node (function or property) to remove @replace_me decorators."""
+        # Process the function body first
         self.generic_visit(node)
 
+        # Filter decorators
         new_decorators = []
         for decorator in node.decorator_list:
             if self._should_remove_decorator(decorator):

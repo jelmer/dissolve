@@ -70,15 +70,38 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         """Process function definitions to find @replace_me decorators."""
+        self._process_decorated_node(node)
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        """Process async function definitions to find @replace_me decorators."""
+        self._process_decorated_node(node)
+        self.generic_visit(node)
+
+    def _process_decorated_node(
+        self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]
+    ) -> None:
+        """Process any decorated node (function or property) to find @replace_me decorators."""
+        # Check if this is a property getter
+        is_property = any(
+            isinstance(d, ast.Name) and d.id == "property" for d in node.decorator_list
+        )
+
         for decorator in node.decorator_list:
             if is_replace_me_decorator(decorator):
-                # For the new format, extract replacement from function body
+                # For the new format, extract replacement from function/property body
                 replacement_expr = self._extract_replacement_from_body(node)
                 if replacement_expr:
-                    self.replacements[node.name] = ReplaceInfo(
-                        node.name, replacement_expr
-                    )
-        self.generic_visit(node)
+                    # For properties, we need to handle them as attribute access
+                    if is_property:
+                        # Property access is obj.property_name, no parentheses
+                        self.replacements[node.name] = ReplaceInfo(
+                            node.name, replacement_expr
+                        )
+                    else:
+                        self.replacements[node.name] = ReplaceInfo(
+                            node.name, replacement_expr
+                        )
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         """Collect import information for module resolution."""
