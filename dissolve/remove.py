@@ -65,13 +65,17 @@ class ReplaceRemover(ast.NodeTransformer):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Process function definitions to remove @replace_me decorators."""
-        return self._process_decorated_node(node)
+        result = self._process_decorated_node(node)
+        assert isinstance(result, ast.FunctionDef)
+        return result
 
     def visit_AsyncFunctionDef(
         self, node: ast.AsyncFunctionDef
     ) -> ast.AsyncFunctionDef:
         """Process async function definitions to remove @replace_me decorators."""
-        return self._process_decorated_node(node)
+        result = self._process_decorated_node(node)
+        assert isinstance(result, ast.AsyncFunctionDef)
+        return result
 
     def _process_decorated_node(
         self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]
