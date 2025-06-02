@@ -49,6 +49,16 @@ class FunctionCallReplacer(ast.NodeTransformer):
             return self._create_replacement_node(node, replacement)
         return node
 
+    def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+        """Visit Attribute nodes and replace deprecated property accesses."""
+        self.generic_visit(node)
+
+        # Check if this is a property access that should be replaced
+        if node.attr in self.replacements:
+            replacement = self.replacements[node.attr]
+            return self._create_property_replacement_node(node, replacement)
+        return node
+
     def _get_function_name(self, node: ast.Call) -> Union[str, None]:
         """Extract the function name from a Call node."""
         if isinstance(node.func, ast.Name):
@@ -123,6 +133,40 @@ class FunctionCallReplacer(ast.NodeTransformer):
 
         return param_map
 
+    def _create_property_replacement_node(
+        self, original_attr: ast.Attribute, replacement: ReplaceInfo
+    ) -> ast.AST:
+        """Create an AST node for the property replacement expression.
+
+        Args:
+            original_attr: The original attribute access to replace.
+            replacement: Information about the replacement expression.
+
+        Returns:
+            AST node representing the replacement expression with the object
+            reference substituted.
+        """
+        # For properties, we need to substitute 'self' with the actual object
+        temp_expr = replacement.replacement_expr
+
+        # Replace 'self' placeholder with the actual object
+        temp_expr = temp_expr.replace("{self}", "self")
+
+        try:
+            # Parse the replacement expression
+            replacement_ast = ast.parse(temp_expr, mode="eval").body
+
+            # Substitute 'self' with the actual object being accessed
+            param_map = {"self": original_attr.value}
+            result = substitute_parameters(replacement_ast, param_map)
+
+            # Copy location information from original attribute access
+            ast.copy_location(result, original_attr)
+            return result
+        except SyntaxError:
+            # If parsing fails, return the original attribute access
+            return original_attr
+
 
 class InteractiveFunctionCallReplacer(FunctionCallReplacer):
     """Interactive version of FunctionCallReplacer that prompts for user confirmation.
@@ -190,6 +234,42 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
 
             # Prompt user
             response = self.prompt_func(old_call_str, new_call_str)
+
+            if response == "y":
+                return replacement_node
+            elif response == "a":
+                self.replace_all = True
+                return replacement_node
+            elif response == "q":
+                self.quit = True
+                return node
+            else:  # response == "n"
+                return node
+
+        return node
+
+    def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+        """Visit Attribute nodes and interactively replace deprecated property accesses."""
+        if self.quit:
+            return node
+
+        self.generic_visit(node)
+
+        # Check if this is a property access that should be replaced
+        if node.attr in self.replacements:
+            replacement = self.replacements[node.attr]
+
+            # Get string representations of old and new attribute access
+            old_attr_str = ast.unparse(node)
+            replacement_node = self._create_property_replacement_node(node, replacement)
+            new_attr_str = ast.unparse(replacement_node)
+
+            # Check if we should replace
+            if self.replace_all:
+                return replacement_node
+
+            # Prompt user
+            response = self.prompt_func(old_attr_str, new_attr_str)
 
             if response == "y":
                 return replacement_node

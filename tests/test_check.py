@@ -112,3 +112,32 @@ def normal_func(z):
         assert result.success
         assert set(result.checked_functions) == {"old_func1", "old_func2"}
         assert result.errors == []
+
+    def test_property_replacement(self):
+        """Test checking @replace_me decorated properties."""
+        source = """
+class MyClass:
+    @property
+    @replace_me()
+    def old_property(self):
+        return self.new_property
+        """
+        result = check_replacements(source)
+        assert result.success
+        assert result.checked_functions == ["old_property"]
+        assert result.errors == []
+
+    def test_property_with_complex_body(self):
+        """Test property with multiple statements should fail."""
+        source = """
+class MyClass:
+    @property
+    @replace_me()
+    def old_property(self):
+        x = self.compute()
+        return self.new_property
+        """
+        result = check_replacements(source)
+        assert not result.success
+        assert result.checked_functions == ["old_property"]
+        assert len(result.errors) == 1

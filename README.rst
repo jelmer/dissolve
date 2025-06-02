@@ -32,7 +32,8 @@ Running this code will yield a warning:
    <stdin>:1: DeprecationWarning: <function inc at 0x7feaf5ead5a0> has been deprecated since 0.1.0; use 'increment(x)' instead
    4
 
-Running the ``dissolve migrate`` command will automatically replace the deprecated function call with the suggested replacement:
+Running the ``dissolve migrate`` command will automatically replace the
+deprecated function call with the suggested replacement:
 
 .. code-block:: console
 
@@ -190,11 +191,31 @@ When errors are found:
 The command exits with code 1 if any errors are found, making it useful in CI
 pipelines to ensure all deprecations are properly formatted.
 
+Supported objects
+=================
+
+The `replace_me` decorator can currently be applied to:
+
+- Functions
+- Methods
+- Properties
+
+In the future, support for other types of objects may be added:
+
+- Classes (see https://github.com/jelmer/dissolve/issues/33)
+- Async functions (see https://github.com/jelmer/dissolve/issues/34)
+
+Dissolve will automatically determine the appropriate replacement expression
+based on the body of the decorated object. In some cases, this is not possible,
+such as when the body is a complex expression or when the object is a lambda
+function.
 
 Optional Dependency Usage
 =========================
 
-If you don't want to add a runtime dependency on dissolve, you can define a fallback implementation that mimics dissolve's basic deprecation warning functionality:
+If you don't want to add a runtime dependency on dissolve, you can define a
+fallback implementation that mimics dissolve's basic deprecation warning
+functionality:
 
 .. code-block:: python
 
@@ -202,7 +223,7 @@ If you don't want to add a runtime dependency on dissolve, you can define a fall
        from dissolve import replace_me
    except ModuleNotFoundError:
        import warnings
-       
+
        def replace_me(since=None, remove_in=None):
            def decorator(func):
                def wrapper(*args, **kwargs):
@@ -217,4 +238,8 @@ If you don't want to add a runtime dependency on dissolve, you can define a fall
                return wrapper
            return decorator
 
-This fallback implementation provides the same decorator interface as dissolve's ``replace_me`` decorator. When dissolve is installed, you get full deprecation warnings with replacement suggestions and migration support. When it's not installed, you still get basic deprecation warnings that include a suggestion to use dissolve's migration tool.
+This fallback implementation provides the same decorator interface as
+dissolve's ``replace_me`` decorator. When dissolve is installed, you get full
+deprecation warnings with replacement suggestions and migration support. When
+it's not installed, you still get basic deprecation warnings that include a
+suggestion to use dissolve's migration tool.
