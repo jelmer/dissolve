@@ -39,6 +39,19 @@ class ReplaceInfo:
         self.replacement_expr = replacement_expr
 
 
+class UnreplaceableNode:
+    """Represents a node that cannot be replaced.
+
+    This is used to indicate that a function or property cannot be replaced
+    due to its complexity or structure.
+    """
+
+    def __init__(self, old_name: str, reason: ReplacementFailureReason, message: str) -> None:
+        self.old_name = old_name
+        self.reason = reason
+        self.message = message
+
+
 class ImportInfo:
     """Information about imported names.
 
@@ -66,6 +79,7 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
 
     def __init__(self) -> None:
         self.replacements: dict[str, ReplaceInfo] = {}
+        self.unreplaceable: dict[str, UnreplaceableNode] = {}
         self.imports: list[ImportInfo] = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -90,8 +104,14 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
         for decorator in node.decorator_list:
             if is_replace_me_decorator(decorator):
                 # For the new format, extract replacement from function/property body
-                replacement_expr = self._extract_replacement_from_body(node)
-                if replacement_expr:
+                try:
+                    replacement_expr = self._extract_replacement_from_body(node)
+                except ReplacementExtractionError as e:
+                    # If extraction fails, mark as unreplaceable
+                    self.unreplaceable[node.name] = UnreplaceableNode(
+                        node.name, e.failure_reason, e.details or "No details provided"
+                    )
+                else:
                     # For properties, we need to handle them as attribute access
                     if is_property:
                         # Property access is obj.property_name, no parentheses
@@ -113,65 +133,49 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
     def _extract_replacement_from_body(
         self,
         func_def: Union[ast.FunctionDef, ast.AsyncFunctionDef],
-        raise_on_error: bool = False,
-    ) -> Union[str, None]:
+    ) -> str:
         """Extract replacement expression from function body.
 
         Args:
             func_def: The function definition AST node.
-            raise_on_error: If True, raise ReplacementExtractionError on failure.
-                           If False, return None on failure.
 
         Returns:
-            The replacement expression with parameter placeholders, or None
-            if no valid replacement can be extracted and raise_on_error is False.
+            The replacement expression with parameter placeholders
 
         Raises:
             ReplacementExtractionError: If no valid replacement can be extracted
-                                      and raise_on_error is True.
         """
         if not func_def.body:
-            if raise_on_error:
-                raise ReplacementExtractionError(
-                    func_def.name,
-                    ReplacementFailureReason.COMPLEX_BODY,
-                    "Function has no body",
-                )
-            return None
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Function has no body",
+            )
 
         if len(func_def.body) != 1:
-            if raise_on_error:
-                raise ReplacementExtractionError(
-                    func_def.name,
-                    ReplacementFailureReason.COMPLEX_BODY,
-                    "Function has multiple statements",
-                )
-            return None
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Function has multiple statements",
+            )
 
         stmt = func_def.body[0]
         if not isinstance(stmt, ast.Return):
             # Special case: pass statement is valid but not extractable
             if isinstance(stmt, ast.Pass):
-                if raise_on_error:
-                    # For checking purposes, pass statements are considered valid
-                    return None
-                return None
-            if raise_on_error:
-                raise ReplacementExtractionError(
-                    func_def.name,
-                    ReplacementFailureReason.COMPLEX_BODY,
-                    "Function does not have a return statement",
-                )
-            return None
+                return "None"
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Function does not have a return statement",
+            )
 
         if not stmt.value:
-            if raise_on_error:
-                raise ReplacementExtractionError(
-                    func_def.name,
-                    ReplacementFailureReason.COMPLEX_BODY,
-                    "Function has empty return statement",
-                )
-            return None
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Function has empty return statement",
+            )
 
         # Create a template with parameter placeholders
         replacement_expr = ast.unparse(stmt.value)

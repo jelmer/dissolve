@@ -67,7 +67,7 @@ class ReplacementChecker(ast.NodeVisitor):
                 # Use the same logic as migrate to test extraction
                 collector = DeprecatedFunctionCollector()
                 try:
-                    collector._extract_replacement_from_body(node, raise_on_error=True)
+                    collector._extract_replacement_from_body(node)
                     # If we get here, the function can be processed successfully
                 except ReplacementExtractionError as e:
                     # Capture the detailed error message from the exception
