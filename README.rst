@@ -190,6 +190,23 @@ When errors are found:
 The command exits with code 1 if any errors are found, making it useful in CI
 pipelines to ensure all deprecations are properly formatted.
 
+Supported objects
+=================
+
+The `replace_me` decorator can currently be applied to:
+
+- Functions
+- Methods
+- Properties
+
+In the future, support for other types of objects may be added:
+
+- Classes (see https://github.com/jelmer/dissolve/issues/33)
+- Async functions (see https://github.com/jelmer/dissolve/issues/34)
+
+Dissolve will automatically determine the appropriate replacement expression based on the body of the
+decorated object. In some cases, this is not possible, such as when the body is a complex expression or
+when the object is a lambda function.
 
 Optional Dependency Usage
 =========================
