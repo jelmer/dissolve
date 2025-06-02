@@ -46,7 +46,9 @@ class UnreplaceableNode:
     due to its complexity or structure.
     """
 
-    def __init__(self, old_name: str, reason: ReplacementFailureReason, message: str) -> None:
+    def __init__(
+        self, old_name: str, reason: ReplacementFailureReason, message: str
+    ) -> None:
         self.old_name = old_name
         self.reason = reason
         self.message = message
