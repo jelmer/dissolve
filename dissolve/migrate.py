@@ -45,19 +45,31 @@ Example:
 
 import ast
 import logging
-from typing import Callable, Literal, Optional, Union
+from dataclasses import dataclass
+from typing import Callable, Literal, Optional
 
-from .collector import DeprecatedFunctionCollector
+from .collector import DeprecatedFunctionCollector, ReplaceInfo
+from .context_analyzer import ContextAnalyzer, analyze_replacement_context
+from .import_utils import ImportManager, ImportRequirement
 from .replacer import FunctionCallReplacer, InteractiveFunctionCallReplacer
+
+
+@dataclass
+class MigrationResult:
+    """Result of a migration operation."""
+
+    source: str
+    has_unmigrated_calls: bool
+    unmigrated_count: int = 0
+    migrated_count: int = 0
 
 
 def migrate_source(
     source: str,
-    module_resolver: Union[
-        Callable[[str, Union[str, None]], Union[str, None]], None
-    ] = None,
+    module_resolver: Optional[Callable[[str, Optional[str]], Optional[str]]] = None,
     interactive: bool = False,
-    prompt_func: Union[Callable[[str, str], Literal["y", "n", "a", "q"]], None] = None,
+    prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
+    verbose: bool = False,
 ) -> str:
     """Migrate Python source code by inlining replace_me decorated functions.
 
@@ -72,6 +84,7 @@ def migrate_source(
             module cannot be resolved.
         interactive: Whether to prompt for confirmation before each replacement.
         prompt_func: Optional custom prompt function for interactive mode.
+        verbose: Whether to enable verbose logging of successful inlinings.
 
     Returns:
         The migrated source code with deprecated function calls replaced.
@@ -100,7 +113,11 @@ def migrate_source(
     # Parse the source code
     tree = ast.parse(source)
 
-    # First pass: collect imports and local deprecations
+    # First pass: analyze context (imports, local definitions)
+    context = ContextAnalyzer()
+    context.visit(tree)
+
+    # Second pass: collect imports and local deprecations
     collector = DeprecatedFunctionCollector()
     collector.visit(tree)
 
@@ -120,25 +137,135 @@ def migrate_source(
                     for name, alias in import_info.names:
                         if name in module_collector.replacements:
                             replacement_info = module_collector.replacements[name]
-                            # Use alias if provided, otherwise use original name
+                            # Create a new ReplaceInfo with the source module information
                             key = alias if alias else name
-                            collector.replacements[key] = replacement_info
+                            collector.replacements[key] = ReplaceInfo(
+                                old_name=key,
+                                replacement_expr=replacement_info.replacement_expr,
+                                func_def=replacement_info.func_def,
+                                source_module=import_info.module,
+                            )
             except BaseException as e:
                 logging.warning(
                     'Failed to resolve module "%s", ignoring: %s', import_info.module, e
                 )
 
-    if not collector.replacements:
+    # Combine replacements and unreplaceable functions for comprehensive tracking
+    all_deprecated = {}
+    all_deprecated.update(collector.replacements)
+
+    # Add unreplaceable functions with dummy ReplaceInfo
+    for func_name, unreplaceable in collector.unreplaceable.items():
+        # Create a ReplaceInfo with the function definition but no replacement
+        all_deprecated[func_name] = ReplaceInfo(
+            func_name,
+            "",  # Empty replacement expression
+            func_def=unreplaceable.node if hasattr(unreplaceable, "node") else None,
+        )
+
+    if not all_deprecated:
         return source
 
-    # Second pass: replace function calls
+    # Filter out non-inlinable functions (but don't warn yet - wait until we see if they're called)
+    from .extractor import extract_replacement_from_body
+    from .types import ReplacementExtractionError
+
+    inlinable_replacements = {}
+
+    for func_name, replacement in collector.replacements.items():
+        if replacement.func_def:
+            try:
+                extract_replacement_from_body(replacement.func_def)
+                inlinable_replacements[func_name] = replacement
+            except ReplacementExtractionError:
+                # Don't warn here - wait to see if the function is actually called
+                pass
+        else:
+            # If no func_def, assume it's inlinable (might be from older format)
+            inlinable_replacements[func_name] = replacement
+
+    # Third pass: replace function calls (only for inlinable functions)
+    # Even if there are no inlinable replacements, we still need to check for calls to non-inlinable functions
     if interactive:
         replacer: FunctionCallReplacer = InteractiveFunctionCallReplacer(
-            collector.replacements, prompt_func
+            inlinable_replacements, prompt_func, all_deprecated, verbose=verbose
         )
     else:
-        replacer = FunctionCallReplacer(collector.replacements)
+        replacer = FunctionCallReplacer(
+            inlinable_replacements, all_deprecated, verbose=verbose
+        )
     new_tree = replacer.visit(tree)
+
+    # Issue warnings for specific calls to non-migratable functions
+    warned_functions = set()
+    for func_name, line_num, reason in replacer.non_migratable_calls:
+        # First, issue a general warning about the function if we haven't already
+        if func_name not in warned_functions:
+            logging.warning(
+                'Deprecated function "%s" cannot be automatically migrated: %s',
+                func_name,
+                reason,
+            )
+            warned_functions.add(func_name)
+
+        # Then issue a specific warning about this call
+        logging.warning(
+            'Call to deprecated function "%s" at line %d cannot be automatically migrated: %s',
+            func_name,
+            line_num,
+            reason,
+        )
+
+    # Log successful inlinings in verbose mode
+    if verbose:
+        for func_name, line_num in replacer.successful_inlinings:
+            logging.info(
+                'Successfully inlined deprecated function "%s" at line %d',
+                func_name,
+                line_num,
+            )
+
+    # Fourth pass: intelligent import management
+    if replacer.new_functions_used or inlinable_replacements:
+        import_manager = ImportManager(new_tree)
+
+        # Analyze replacement expressions for import requirements
+        for old_func, replacement_info in inlinable_replacements.items():
+            requirements = analyze_replacement_context(
+                replacement_info.replacement_expr, context
+            )
+
+            for req in requirements:
+                if req.is_local_reference:
+                    # This references something defined locally, no import needed
+                    continue
+
+                if req.suggested_module:
+                    # We have a suggestion for where this should be imported from
+                    actual_req = ImportRequirement(
+                        module=req.suggested_module, name=req.name, alias=req.alias
+                    )
+                    import_manager.add_import(actual_req)
+                elif req.module:
+                    # We know the exact module
+                    import_manager.add_import(req)
+
+            # If this replacement comes from an imported module, check for local variable references
+            if replacement_info.source_module and replacement_info.func_def:
+                non_param_names = collector._get_non_parameter_names(
+                    replacement_info.func_def, replacement_info.replacement_expr
+                )
+
+                # Add imports for non-parameter names from the source module
+                for name in non_param_names:
+                    # Skip if already imported or defined locally
+                    if not context.is_local_reference(
+                        name
+                    ) and not context.get_import_source(name):
+                        import_req = ImportRequirement(
+                            module=replacement_info.source_module, name=name, alias=None
+                        )
+                        import_manager.add_import(import_req)
 
     # Convert back to source code
     return ast.unparse(new_tree)
@@ -177,7 +304,8 @@ def migrate_file_with_imports(
     filepath: str,
     write: bool = False,
     interactive: bool = False,
-    prompt_func: Union[Callable[[str, str], Literal["y", "n", "a", "q"]], None] = None,
+    prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
+    verbose: bool = False,
 ) -> str:
     """Migrate a Python file, considering imported deprecated functions.
 
@@ -191,6 +319,7 @@ def migrate_file_with_imports(
         write: Whether to write changes back to the file.
         interactive: Whether to prompt for confirmation before each replacement.
         prompt_func: Optional custom prompt function for interactive mode.
+        verbose: Whether to enable verbose logging of successful inlinings.
 
     Returns:
         The migrated source code.
@@ -245,6 +374,7 @@ def migrate_file_with_imports(
         module_resolver=local_module_resolver,
         interactive=interactive,
         prompt_func=prompt_func,
+        verbose=verbose,
     )
 
     if write and new_source != source:

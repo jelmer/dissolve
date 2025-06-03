@@ -19,9 +19,10 @@ This module provides tools to collect and analyze functions decorated with
 """
 
 import ast
-from typing import Union
+from typing import Optional, Union
 
 from .ast_helpers import is_replace_me_decorator
+from .extractor import extract_replacement_from_body
 from .types import ReplacementExtractionError, ReplacementFailureReason
 
 
@@ -32,11 +33,17 @@ class ReplaceInfo:
         old_name: The name of the deprecated function.
         replacement_expr: The replacement expression template with parameter
             placeholders in the format {param_name}.
+        func_def: Optional AST node of the function definition.
+        source_module: Optional module name where the function is defined.
     """
 
-    def __init__(self, old_name: str, replacement_expr: str) -> None:
+    def __init__(
+        self, old_name: str, replacement_expr: str, func_def=None, source_module=None
+    ) -> None:
         self.old_name = old_name
         self.replacement_expr = replacement_expr
+        self.func_def = func_def
+        self.source_module = source_module
 
 
 class UnreplaceableNode:
@@ -47,11 +54,16 @@ class UnreplaceableNode:
     """
 
     def __init__(
-        self, old_name: str, reason: ReplacementFailureReason, message: str
+        self,
+        old_name: str,
+        reason: ReplacementFailureReason,
+        message: str,
+        node: Optional[ast.AST] = None,
     ) -> None:
         self.old_name = old_name
         self.reason = reason
         self.message = message
+        self.node = node
 
 
 class ImportInfo:
@@ -107,22 +119,29 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
             if is_replace_me_decorator(decorator):
                 # For the new format, extract replacement from function/property body
                 try:
-                    replacement_expr = self._extract_replacement_from_body(node)
+                    # Make a copy to avoid mutating the original AST
+                    import copy
+
+                    node_copy = copy.deepcopy(node)
+                    replacement_expr = extract_replacement_from_body(node_copy)
                 except ReplacementExtractionError as e:
                     # If extraction fails, mark as unreplaceable
                     self.unreplaceable[node.name] = UnreplaceableNode(
-                        node.name, e.failure_reason, e.details or "No details provided"
+                        node.name,
+                        e.failure_reason,
+                        e.details or "No details provided",
+                        node,
                     )
                 else:
                     # For properties, we need to handle them as attribute access
                     if is_property:
                         # Property access is obj.property_name, no parentheses
                         self.replacements[node.name] = ReplaceInfo(
-                            node.name, replacement_expr
+                            node.name, replacement_expr, func_def=node
                         )
                     else:
                         self.replacements[node.name] = ReplaceInfo(
-                            node.name, replacement_expr
+                            node.name, replacement_expr, func_def=node
                         )
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -132,59 +151,35 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
             self.imports.append(ImportInfo(node.module, names))
         self.generic_visit(node)
 
-    def _extract_replacement_from_body(
-        self,
-        func_def: Union[ast.FunctionDef, ast.AsyncFunctionDef],
-    ) -> str:
-        """Extract replacement expression from function body.
+    def _get_non_parameter_names(self, func_def, replacement_expr: str) -> set[str]:
+        """Get names in replacement expression that are not parameters."""
+        import ast
 
-        Args:
-            func_def: The function definition AST node.
+        from .ast_helpers import extract_module_names, extract_names_from_ast
 
-        Returns:
-            The replacement expression with parameter placeholders
+        # Get parameter names
+        param_names = {arg.arg for arg in func_def.args.args}
+        if func_def.args.vararg:
+            param_names.add(func_def.args.vararg.arg)
 
-        Raises:
-            ReplacementExtractionError: If no valid replacement can be extracted
-        """
-        if not func_def.body:
-            raise ReplacementExtractionError(
-                func_def.name,
-                ReplacementFailureReason.COMPLEX_BODY,
-                "Function has no body",
-            )
+        # Replace placeholders with dummy parameter names for parsing
+        temp_expr = replacement_expr
+        for param in param_names:
+            temp_expr = temp_expr.replace(f"{{{param}}}", param)
 
-        if len(func_def.body) != 1:
-            raise ReplacementExtractionError(
-                func_def.name,
-                ReplacementFailureReason.COMPLEX_BODY,
-                "Function has multiple statements",
-            )
+        # Parse replacement expression
+        try:
+            tree = ast.parse(temp_expr, mode="eval")
+        except SyntaxError:
+            return set()
 
-        stmt = func_def.body[0]
-        if not isinstance(stmt, ast.Return):
-            # Special case: pass statement is valid but not extractable
-            if isinstance(stmt, ast.Pass):
-                return "None"
-            raise ReplacementExtractionError(
-                func_def.name,
-                ReplacementFailureReason.COMPLEX_BODY,
-                "Function does not have a return statement",
-            )
+        # Get all names used as variables (not modules)
+        all_names = extract_names_from_ast(
+            tree, context_filter=lambda ctx: isinstance(ctx, ast.Load)
+        )
 
-        if not stmt.value:
-            raise ReplacementExtractionError(
-                func_def.name,
-                ReplacementFailureReason.COMPLEX_BODY,
-                "Function has empty return statement",
-            )
+        # Get module names separately
+        module_names = extract_module_names(tree)
 
-        # Create a template with parameter placeholders
-        replacement_expr = ast.unparse(stmt.value)
-
-        # Replace parameter names with placeholders
-        for arg in func_def.args.args:
-            param_name = arg.arg
-            replacement_expr = replacement_expr.replace(param_name, f"{{{param_name}}}")
-
-        return replacement_expr
+        # Return names that are not parameters and not modules
+        return (all_names - param_names) - module_names

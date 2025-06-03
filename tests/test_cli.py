@@ -480,6 +480,107 @@ def broken_function(x):
         os.unlink(temp_path)
 
 
+def test_info_command_with_inlining_status():
+    """Test the info command shows inlining status for non-inlinable functions."""
+    source = """
+from dissolve import replace_me
+import math
+
+@replace_me()
+def simple_func(x):
+    return x + 1
+
+@replace_me()
+def non_inlinable_func(x, **kwargs):
+    return process_with_kwargs(x, **kwargs)
+
+@replace_me()
+def recursive_func(n):
+    return 1 if n <= 1 else n * recursive_func(n-1)
+
+@replace_me()
+def with_local_import(x):
+    import math
+    return math.sqrt(x)
+
+@replace_me()
+async def async_func(x):
+    return x * 2
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["info", temp_path])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0
+
+        # Check that inlinable function doesn't show status
+        assert "simple_func() -> x + 1\n" in output
+
+        # Check that non-inlinable functions show status
+        assert "[not inlinable:" in output
+        assert "Total deprecated functions found: 5" in output
+        assert "Inlinable: 3" in output
+        assert "Not inlinable: 2" in output
+
+    finally:
+        os.unlink(temp_path)
+
+
+def test_info_command_counts_inlinable_and_non_inlinable():
+    """Test the info command shows correct counts for inlinable vs non-inlinable functions."""
+    source = """
+from dissolve import replace_me
+
+@replace_me()
+def inlinable1(x):
+    return x + 1
+
+@replace_me()
+def inlinable2(x, y):
+    temp = x * 2
+    return temp + y
+
+@replace_me()
+def non_inlinable_kwargs(x, **kwargs):
+    return process(x, **kwargs)
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["info", temp_path])
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0
+        assert "Total deprecated functions found: 3" in output
+        assert "Inlinable: 2" in output
+        assert "Not inlinable: 1" in output
+
+    finally:
+        os.unlink(temp_path)
+
+
 def test_migrate_module_flag_no_changes():
     """Test migrate -m with a module that doesn't need migration."""
     source = """
@@ -858,3 +959,71 @@ def test_auto_detect_version():
     import re
 
     assert re.match(r"^\d+\.\d+\.\d+", version)
+
+
+def test_migrate_exit_code_with_unmigrated_calls():
+    """Test that migrate returns exit code 2 when there are unmigrated calls."""
+    source = """
+from dissolve import replace_me
+
+@replace_me()
+def problematic_func(x, **kwargs):
+    return process(x, **kwargs)
+
+result = problematic_func(5, mode="test")
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout to suppress output during test
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["migrate", temp_path])
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 2, (
+            f"Expected exit code 2 for unmigrated calls, got {exit_code}"
+        )
+
+    finally:
+        os.unlink(temp_path)
+
+
+def test_migrate_exit_code_with_successful_migration():
+    """Test that migrate returns exit code 0 when all calls can be migrated."""
+    source = """
+from dissolve import replace_me
+
+@replace_me()
+def simple_func(x):
+    return x * 2
+
+result = simple_func(5)
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = f.name
+
+    try:
+        # Capture stdout to suppress output during test
+        old_stdout = sys.stdout
+        sys.stdout = StringIO()
+
+        try:
+            exit_code = main(["migrate", temp_path])
+        finally:
+            sys.stdout = old_stdout
+
+        assert exit_code == 0, (
+            f"Expected exit code 0 for successful migration, got {exit_code}"
+        )
+
+    finally:
+        os.unlink(temp_path)

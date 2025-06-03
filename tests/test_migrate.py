@@ -210,7 +210,7 @@ x = value()
         assert "x = 42" in result
 
     def test_non_simple_function(self):
-        # Test that functions with complex bodies are not replaced
+        # Test that simple multi-statement functions (assignment + return) are now supported
         source = """
 from dissolve import replace_me
 
@@ -222,8 +222,8 @@ def complex_func(x):
 result = complex_func(5)
 """
         result = migrate_source(source.strip())
-        # Should keep the original call when function body is not simple
-        assert "complex_func(5)" in result
+        # Should now inline simple assignment + return patterns
+        assert "(5 + 1) * 2" in result or "result = (5 + 1) * 2" in result
 
     def test_empty_source(self):
         result = migrate_source("")
@@ -238,6 +238,94 @@ print(normal_func(5))
 """
         result = migrate_source(source.strip())
         assert result == source.strip()
+
+    def test_empty_function_bodies(self):
+        """Test migration of functions with empty bodies (pass, docstring only, docstring + pass)."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def empty_func():
+    pass
+
+@replace_me()
+def func_with_docstring():
+    \"\"\"This function does nothing.\"\"\"
+    pass
+
+@replace_me()
+def func_with_only_docstring():
+    \"\"\"This function only has a docstring.\"\"\"
+
+# Test various call patterns
+result1 = empty_func()
+result2 = func_with_docstring()
+result3 = func_with_only_docstring()
+
+# Also test in expressions
+value = empty_func() + 5
+if func_with_docstring():
+    print("test")
+"""
+        result = migrate_source(source.strip())
+
+        # All function calls should be replaced with None
+        assert "result1 = None" in result
+        assert "result2 = None" in result
+        assert "result3 = None" in result
+        assert "value = None + 5" in result
+        assert "if None:" in result
+
+        # Function definitions should remain unchanged
+        assert "@replace_me()" in result
+        assert "def empty_func():" in result
+        assert "def func_with_docstring():" in result
+        assert "def func_with_only_docstring():" in result
+        assert "pass" in result
+        assert "This function does nothing." in result
+        assert "This function only has a docstring." in result
+
+    def test_empty_function_bodies_edge_cases(self):
+        """Test edge cases for empty function bodies."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def func_empty_body():
+    \"\"\"Docstring.\"\"\"
+    # Just a comment
+    pass
+
+@replace_me()
+def func_multiline_docstring():
+    \"\"\"
+    This is a multiline
+    docstring.
+    \"\"\"
+
+@replace_me() 
+def func_with_ellipsis():
+    \"\"\"Function with ellipsis.\"\"\"
+    ...
+
+@replace_me()
+def func_ellipsis_only():
+    ...
+
+result1 = func_empty_body()
+result2 = func_multiline_docstring()
+result3 = func_with_ellipsis()
+result4 = func_ellipsis_only()
+"""
+        result = migrate_source(source.strip())
+
+        # Functions with docstring + pass should work
+        assert "result1 = None" in result
+        assert "result2 = None" in result
+
+        # Functions with ellipsis should also work
+        assert "result3 = None" in result
+        assert "result4 = None" in result
 
 
 class TestInteractiveMigration:
@@ -428,3 +516,341 @@ total = calc.old_sum
 
         # Check that property access is replaced with the complex expression
         assert "total = calc.x + calc.y + 10" in result
+
+    def test_empty_function_bodies(self):
+        source = """
+@replace_me()
+def empty_func():
+    pass
+
+@replace_me()
+def func_with_docstring():
+    \"\"\"This function does nothing.\"\"\"
+    pass
+
+@replace_me()
+def func_with_only_docstring():
+    \"\"\"This function only has a docstring.\"\"\"
+
+result1 = empty_func()
+result2 = func_with_docstring()
+result3 = func_with_only_docstring()
+        """
+        expected = """
+@replace_me()
+def empty_func():
+    pass
+
+@replace_me()
+def func_with_docstring():
+    \"\"\"This function does nothing.\"\"\"
+    pass
+
+@replace_me()
+def func_with_only_docstring():
+    \"\"\"This function only has a docstring.\"\"\"
+result1 = None
+result2 = None
+result3 = None
+        """
+        result = migrate_source(source.strip())
+        assert result.strip() == expected.strip()
+
+    def test_migrate_with_non_inlinable_function_warnings(self):
+        """Test that migration warns about non-inlinable deprecated functions."""
+        import io
+        import logging
+
+        # Capture log output
+        log_capture = io.StringIO()
+        handler = logging.StreamHandler(log_capture)
+        # Get the root logger to capture all warnings
+        logger = logging.getLogger()
+        original_level = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.WARNING)
+
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def non_inlinable_func(x, **kwargs):
+    return process_with_kwargs(x, **kwargs)
+
+@replace_me()
+def inlinable_func(x):
+    return x + 1
+
+# Usage
+result1 = inlinable_func(5)  # Should be migrated
+result2 = non_inlinable_func(10, extra=True)  # Should warn
+"""
+
+        try:
+            result = migrate_source(source.strip())
+
+            # Check that inlinable function was migrated
+            assert "5 + 1" in result
+            assert "inlinable_func(5)" not in result
+
+            # Check that non-inlinable function call remains unchanged
+            assert "non_inlinable_func(10, extra=True)" in result
+
+            # Check that warnings were issued
+            log_output = log_capture.getvalue()
+            assert (
+                'Deprecated function "non_inlinable_func" cannot be automatically migrated'
+                in log_output
+            )
+            assert 'Call to deprecated function "non_inlinable_func"' in log_output
+
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(original_level)
+
+    def test_migrate_with_multiple_non_inlinable_warnings(self):
+        """Test that migration warns about multiple calls to non-inlinable functions."""
+        import io
+        import logging
+
+        # Capture log output
+        log_capture = io.StringIO()
+        handler = logging.StreamHandler(log_capture)
+        # Get the root logger to capture all warnings
+        logger = logging.getLogger()
+        original_level = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.WARNING)
+
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def kwargs_func(x, **kwargs):
+    return process_data(x, **kwargs)
+
+@replace_me()
+def with_local_import(x):
+    import math
+    return math.sqrt(x)
+
+# Usage
+result1 = kwargs_func(5, extra=True)
+result2 = with_local_import(16)
+result3 = kwargs_func(3, mode="test")  # Another call to the same function
+"""
+
+        try:
+            result = migrate_source(source.strip())
+
+            # Check that non-inlinable function calls remain unchanged
+            assert "kwargs_func(5, extra=True)" in result
+            assert "with_local_import(16)" in result
+            assert "kwargs_func(3, mode=" in result and "test" in result
+
+            # Check that warnings were issued for the non-inlinable functions
+            log_output = log_capture.getvalue()
+            assert (
+                'Deprecated function "kwargs_func" cannot be automatically migrated'
+                in log_output
+            )
+            assert (
+                'Deprecated function "with_local_import" cannot be automatically migrated'
+                in log_output
+            )
+
+            # Should warn about calls to non-migratable functions (check that warnings contain the function names)
+            assert "kwargs_func" in log_output
+            assert "with_local_import" in log_output
+
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(original_level)
+
+    def test_migrate_with_verbose_logging(self):
+        """Test that migration logs successful inlinings in verbose mode."""
+        import io
+        import logging
+
+        # Capture log output
+        log_capture = io.StringIO()
+        handler = logging.StreamHandler(log_capture)
+        # Get the root logger to capture all logs
+        logger = logging.getLogger()
+        original_level = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def inlinable_func1(x):
+    return x + 1
+
+@replace_me()
+def inlinable_func2(x, y):
+    return x * y
+
+@replace_me()
+def non_inlinable_func(x, **kwargs):
+    return process_with_kwargs(x, **kwargs)
+
+# Usage
+result1 = inlinable_func1(5)  # Should be migrated and logged
+result2 = inlinable_func2(3, 4)  # Should be migrated and logged  
+result3 = non_inlinable_func(10, extra=True)  # Should warn, not log success
+result4 = inlinable_func1(7)  # Another call, should also be logged
+"""
+
+        try:
+            from dissolve.migrate import migrate_source
+
+            result = migrate_source(source.strip(), verbose=True)
+
+            # Check that inlinable functions were migrated
+            assert "5 + 1" in result
+            assert "3 * 4" in result
+            assert "7 + 1" in result
+            assert "inlinable_func1(5)" not in result
+            assert "inlinable_func2(3, 4)" not in result
+
+            # Check that non-inlinable function call remains unchanged
+            assert "non_inlinable_func(10, extra=True)" in result
+
+            # Check that successful inlinings were logged
+            log_output = log_capture.getvalue()
+            assert (
+                'Successfully inlined deprecated function "inlinable_func1"'
+                in log_output
+            )
+            assert (
+                'Successfully inlined deprecated function "inlinable_func2"'
+                in log_output
+            )
+
+            # Should log both calls to inlinable_func1
+            assert (
+                log_output.count(
+                    'Successfully inlined deprecated function "inlinable_func1"'
+                )
+                == 2
+            )
+
+            # Should still warn about non-inlinable function
+            assert (
+                'Deprecated function "non_inlinable_func" cannot be automatically migrated'
+                in log_output
+            )
+
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(original_level)
+
+    def test_unused_non_inlinable_functions_no_warning(self):
+        """Test that non-inlinable functions that are defined but not used don't trigger warnings."""
+        import io
+        import logging
+
+        # Capture log output
+        log_capture = io.StringIO()
+        handler = logging.StreamHandler(log_capture)
+        # Get the root logger to capture all warnings
+        logger = logging.getLogger()
+        original_level = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.WARNING)
+
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def non_inlinable_func(x, **kwargs):
+    return process_with_kwargs(x, **kwargs)
+
+@replace_me()
+def inlinable_func(x):
+    return x + 1
+
+@replace_me()
+def another_non_inlinable(x):
+    import math
+    return math.sqrt(x)
+
+# Only use the inlinable function
+result = inlinable_func(5)
+"""
+
+        try:
+            result = migrate_source(source.strip())
+
+            # Check that inlinable function was migrated
+            assert "5 + 1" in result
+            assert "inlinable_func(5)" not in result
+
+            # Check that no warnings were issued for unused non-inlinable functions
+            log_output = log_capture.getvalue()
+            assert 'non_inlinable_func' not in log_output
+            assert 'another_non_inlinable' not in log_output
+            assert 'cannot be automatically migrated' not in log_output
+
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(original_level)
+
+    def test_used_non_inlinable_functions_trigger_warnings(self):
+        """Test that non-inlinable functions that are actually used do trigger warnings."""
+        import io
+        import logging
+
+        # Capture log output
+        log_capture = io.StringIO()
+        handler = logging.StreamHandler(log_capture)
+        # Get the root logger to capture all warnings
+        logger = logging.getLogger()
+        original_level = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.WARNING)
+
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def non_inlinable_func(x, **kwargs):
+    return process_with_kwargs(x, **kwargs)
+
+@replace_me()
+def unused_non_inlinable(x):
+    import math
+    return math.sqrt(x)
+
+@replace_me()
+def inlinable_func(x):
+    return x + 1
+
+# Use both inlinable and one non-inlinable function
+result1 = inlinable_func(5)
+result2 = non_inlinable_func(10, extra=True)
+"""
+
+        try:
+            result = migrate_source(source.strip())
+
+            # Check that inlinable function was migrated
+            assert "5 + 1" in result
+            assert "inlinable_func(5)" not in result
+
+            # Check that non-inlinable function call remains unchanged
+            assert "non_inlinable_func(10, extra=True)" in result
+
+            # Check that warnings were issued only for the used non-inlinable function
+            log_output = log_capture.getvalue()
+            assert 'non_inlinable_func' in log_output
+            assert 'cannot be automatically migrated' in log_output
+            
+            # The unused function should not trigger warnings
+            assert 'unused_non_inlinable' not in log_output
+
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(original_level)
