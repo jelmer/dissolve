@@ -15,11 +15,11 @@
 import os
 import tempfile
 
-from dissolve.remove import remove_decorators, remove_from_file
+from dissolve.remove import remove_decorators, remove_decorators_from_file
 
 
 def test_remove_all_decorators():
-    """Test removing all @replace_me decorators."""
+    """Test removing all functions with @replace_me decorators."""
     source = """
 from dissolve import replace_me
 
@@ -37,18 +37,18 @@ def regular_func(z):
 
     result = remove_decorators(source, remove_all=True)
 
-    # Check that decorators are removed but functions remain
+    # Check that entire decorated functions are removed
     assert "@replace_me" not in result
-    assert "def old_func(x):" in result
-    assert "def another_func(y):" in result
-    assert "def regular_func(z):" in result
-    assert "return x + 1" in result
-    assert "return y * 2" in result
-    assert "return z - 1" in result
+    assert "def old_func(x):" not in result
+    assert "def another_func(y):" not in result
+    assert "def regular_func(z):" in result  # This one should remain
+    assert "return x + 1" not in result
+    assert "return y * 2" not in result
+    assert "return z - 1" in result  # This one should remain
 
 
 def test_remove_property_decorators():
-    """Test removing @replace_me decorators from properties."""
+    """Test removing functions with @replace_me decorators from properties."""
     source = """
 from dissolve import replace_me
 
@@ -65,15 +65,15 @@ class MyClass:
 
     result = remove_decorators(source, remove_all=True)
 
-    # Check that @replace_me is removed but @property remains
+    # Check that entire decorated function is removed
     assert "@replace_me" not in result
-    assert "@property" in result
-    assert "def old_property(self):" in result
-    assert "def new_property(self):" in result
+    assert "def old_property(self):" not in result
+    assert "def new_property(self):" in result  # This one should remain
+    assert "@property" in result  # The remaining property should still have @property
 
 
 def test_remove_before_version():
-    """Test removing decorators before a specific version."""
+    """Test removing functions with decorators before a specific version."""
     source = """
 from dissolve import replace_me
 
@@ -95,7 +95,7 @@ def regular_func(w):
 
     result = remove_decorators(source, before_version="1.5.0")
 
-    # Check that only decorators before 1.5.0 are removed
+    # Check that only functions with decorators before 1.5.0 are removed
     assert (
         '@replace_me(since="0.5.0")' not in result
         and "@replace_me(since='0.5.0')" not in result
@@ -107,10 +107,10 @@ def regular_func(w):
     assert (
         '@replace_me(since="2.0.0")' in result or "@replace_me(since='2.0.0')" in result
     )
-    assert "def very_old_func(x):" in result
-    assert "def old_func(y):" in result
-    assert "def newer_func(z):" in result
-    assert "def regular_func(w):" in result
+    assert "def very_old_func(x):" not in result  # This should be removed
+    assert "def old_func(y):" not in result  # This should be removed
+    assert "def newer_func(z):" in result  # This should remain
+    assert "def regular_func(w):" in result  # This should remain
 
 
 def test_remove_no_version_decorators():
@@ -127,18 +127,22 @@ def func_with_version(y):
     return y * 2
 """
 
-    # When remove_all=True, all decorators should be removed
+    # When remove_all=True, all functions should be removed
     result = remove_decorators(source, remove_all=True)
     assert "@replace_me" not in result
+    assert "def func_no_version(x):" not in result
+    assert "def func_with_version(y):" not in result
 
-    # When only before_version is specified, decorators without version remain
+    # When only before_version is specified, functions without version remain
     result = remove_decorators(source, before_version="2.0.0")
     assert "@replace_me()" in result
+    assert "def func_no_version(x):" in result  # This should remain
     assert '@replace_me(since="1.0.0")' not in result
+    assert "def func_with_version(y):" not in result  # This should be removed
 
 
-def test_remove_from_file():
-    """Test removing decorators from a file."""
+def test_remove_decorators_from_file():
+    """Test removing functions from a file."""
     source = """
 from dissolve import replace_me
 
@@ -153,27 +157,28 @@ def old_func(x):
 
     try:
         # Test without writing
-        result = remove_from_file(temp_path, remove_all=True, write=False)
+        result = remove_decorators_from_file(temp_path, remove_all=True, write=False)
         assert "@replace_me" not in result
+        assert "def old_func(x):" not in result
 
         # Original file should be unchanged
         with open(temp_path) as f:
             assert f.read() == source
 
         # Test with writing
-        remove_from_file(temp_path, remove_all=True, write=True)
+        remove_decorators_from_file(temp_path, remove_all=True, write=True)
 
         # File should be modified
         with open(temp_path) as f:
             modified_content = f.read()
             assert "@replace_me" not in modified_content
-            assert "def old_func(x):" in modified_content
+            assert "def old_func(x):" not in modified_content
     finally:
         os.unlink(temp_path)
 
 
 def test_preserve_other_decorators():
-    """Test that other decorators are preserved."""
+    """Test that functions without @replace_me preserve their decorators."""
     source = """
 from dissolve import replace_me
 import functools
@@ -181,21 +186,29 @@ import functools
 @functools.lru_cache()
 @replace_me(since="1.0.0")
 @property
-def cached_func(x):
+def deprecated_func(x):
     return x + 1
+
+@functools.lru_cache()
+@property
+def kept_func(x):
+    return x + 2
 """
 
     result = remove_decorators(source, remove_all=True)
 
-    # Check that only @replace_me is removed
+    # Check that the deprecated function is completely removed
+    assert "def deprecated_func(x):" not in result
+    assert "@replace_me" not in result
+
+    # Check that the non-deprecated function keeps its decorators
+    assert "def kept_func(x):" in result
     assert "@functools.lru_cache()" in result
     assert "@property" in result
-    assert "@replace_me" not in result
-    assert "def cached_func(x):" in result
 
 
 def test_async_functions():
-    """Test removing decorators from async functions."""
+    """Test removing async functions with @replace_me decorators."""
     source = """
 from dissolve import replace_me
 
@@ -207,12 +220,12 @@ async def async_func(x):
     result = remove_decorators(source, remove_all=True)
 
     assert "@replace_me" not in result
-    assert "async def async_func(x):" in result
-    assert "return x + 1" in result
+    assert "async def async_func(x):" not in result
+    assert "return x + 1" not in result
 
 
 def test_remove_in_parameter():
-    """Test removing decorators based on remove_in parameter."""
+    """Test removing functions based on remove_in parameter."""
     source = """
 from dissolve import replace_me
 
@@ -235,14 +248,16 @@ def no_remove_in(z):
         '@replace_me(since="1.0.0", remove_in="2.0.0")' not in result
         and "@replace_me(since='1.0.0', remove_in='2.0.0')" not in result
     )
-    assert "def old_func(x):" in result
+    assert "def old_func(x):" not in result  # Function should be completely removed
     assert (
         '@replace_me(since="1.5.0", remove_in="3.0.0")' in result
         or "@replace_me(since='1.5.0', remove_in='3.0.0')" in result
     )
+    assert "def newer_func(y):" in result  # Function should remain
     assert (
         '@replace_me(since="2.0.0")' in result or "@replace_me(since='2.0.0')" in result
     )
+    assert "def no_remove_in(z):" in result  # Function should remain
 
     # Current version is 3.0.0, so both old_func and newer_func should be removed
     result = remove_decorators(source, current_version="3.0.0")
@@ -254,11 +269,12 @@ def no_remove_in(z):
         '@replace_me(since="1.5.0", remove_in="3.0.0")' not in result
         and "@replace_me(since='1.5.0', remove_in='3.0.0')" not in result
     )
-    assert "def old_func(x):" in result
-    assert "def newer_func(y):" in result
+    assert "def old_func(x):" not in result  # Function should be completely removed
+    assert "def newer_func(y):" not in result  # Function should be completely removed
     assert (
         '@replace_me(since="2.0.0")' in result or "@replace_me(since='2.0.0')" in result
     )
+    assert "def no_remove_in(z):" in result  # Function should remain
 
     # Current version is 1.0.0, so nothing should be removed
     result = remove_decorators(source, current_version="1.0.0")
@@ -266,13 +282,16 @@ def no_remove_in(z):
         '@replace_me(since="1.0.0", remove_in="2.0.0")' in result
         or "@replace_me(since='1.0.0', remove_in='2.0.0')" in result
     )
+    assert "def old_func(x):" in result  # Function should remain
     assert (
         '@replace_me(since="1.5.0", remove_in="3.0.0")' in result
         or "@replace_me(since='1.5.0', remove_in='3.0.0')" in result
     )
+    assert "def newer_func(y):" in result  # Function should remain
     assert (
         '@replace_me(since="2.0.0")' in result or "@replace_me(since='2.0.0')" in result
     )
+    assert "def no_remove_in(z):" in result  # Function should remain
 
 
 def test_remove_in_with_all_flag():
@@ -289,11 +308,11 @@ def newer_func(y):
     return y * 2
 """
 
-    # With remove_all=True, all decorators should be removed regardless of current_version
+    # With remove_all=True, all functions should be removed regardless of current_version
     result = remove_decorators(source, current_version="1.0.0", remove_all=True)
     assert "@replace_me" not in result
-    assert "def old_func(x):" in result
-    assert "def newer_func(y):" in result
+    assert "def old_func(x):" not in result
+    assert "def newer_func(y):" not in result
 
 
 def test_remove_in_without_current_version():
@@ -312,6 +331,7 @@ def old_func(x):
         '@replace_me(since="1.0.0", remove_in="2.0.0")' in result
         or "@replace_me(since='1.0.0', remove_in='2.0.0')" in result
     )
+    assert "def old_func(x):" in result  # Function should remain
 
     # With before_version but no current_version, should use before_version logic
     result = remove_decorators(source, before_version="2.0.0")
@@ -319,7 +339,7 @@ def old_func(x):
         '@replace_me(since="1.0.0", remove_in="2.0.0")' not in result
         and "@replace_me(since='1.0.0', remove_in='2.0.0')" not in result
     )
-    assert "def old_func(x):" in result
+    assert "def old_func(x):" not in result  # Function should be removed
 
 
 def test_mixed_remove_in_and_before_version():
@@ -348,5 +368,5 @@ def func_with_only_since(y):
         '@replace_me(since="0.5.0")' not in result
         and "@replace_me(since='0.5.0')" not in result
     )
-    assert "def func_with_remove_in(x):" in result
-    assert "def func_with_only_since(y):" in result
+    assert "def func_with_remove_in(x):" not in result  # Function should be removed
+    assert "def func_with_only_since(y):" not in result  # Function should be removed

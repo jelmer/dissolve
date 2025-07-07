@@ -47,8 +47,6 @@ See the documentation for more detailed examples and advanced usage.
 __version__: tuple[int, int, int] = (0, 1, 1)
 
 
-__all__ = ["migrate", "replace_me"]
+__all__ = ["replace_me"]
 
-
-from . import migrate
 from .decorators import replace_me

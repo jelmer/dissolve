@@ -23,7 +23,7 @@ The migration process involves:
 2. Extracting replacement expressions from function bodies
 3. Locating calls to deprecated functions
 4. Substituting actual arguments into replacement expressions
-5. Generating updated source code
+5. Generating updated source code with perfect formatting preservation
 
 Example:
     Given a source file with::
@@ -43,212 +43,184 @@ Example:
         result = new_api(5, 10, mode="legacy")
 """
 
-import ast
 import logging
 from typing import Callable, Literal, Optional, Union
+
+import libcst as cst
 
 from .collector import DeprecatedFunctionCollector
 from .replacer import FunctionCallReplacer, InteractiveFunctionCallReplacer
 
 
-def migrate_source(
-    source: str,
-    module_resolver: Union[
-        Callable[[str, Union[str, None]], Union[str, None]], None
-    ] = None,
+def migrate_file(
+    file_path: str,
+    content: Optional[str] = None,
     interactive: bool = False,
-    prompt_func: Union[Callable[[str, str], Literal["y", "n", "a", "q"]], None] = None,
-) -> str:
-    """Migrate Python source code by inlining replace_me decorated functions.
+    prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
+    show_diff: bool = False,
+) -> Optional[str]:
+    """Migrate a single Python source file.
 
-    This function analyzes the source code for calls to functions decorated
-    with @replace_me and replaces those calls with their suggested replacements.
-    It can also resolve imports to find deprecated functions in other modules.
+    This function analyzes a Python source file, finds functions decorated with
+    @replace_me, and replaces calls to those functions with their suggested
+    alternatives. CST is used to preserve exact formatting, comments, and whitespace.
 
     Args:
-        source: Python source code to migrate.
-        module_resolver: Optional callable that takes (module_name, file_dir)
-            and returns the module's source code as a string, or None if the
-            module cannot be resolved.
-        interactive: Whether to prompt for confirmation before each replacement.
+        file_path: Path to the Python file to migrate.
+        content: Optional source content. If not provided, reads from file_path.
+        interactive: Whether to prompt for each replacement.
+        prompt_func: Optional custom prompt function for interactive mode.
+        show_diff: Whether to show a diff of changes (not yet implemented).
+
+    Returns:
+        The migrated source code if changes were made, None otherwise.
+
+    Raises:
+        IOError: If file cannot be read.
+        SyntaxError: If the Python source code is invalid.
+    """
+    # Read source if not provided
+    if content is None:
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                content = f.read()
+        except OSError as e:
+            logging.error(f"Failed to read {file_path}: {e}")
+            raise
+
+    try:
+        result = migrate_source(
+            content, interactive=interactive, prompt_func=prompt_func
+        )
+        if result == content:
+            # No changes made
+            return None
+        return result
+    except SyntaxError as e:
+        logging.error(f"Failed to parse {file_path}: {e}")
+        raise
+
+
+def migrate_source(
+    source: str,
+    interactive: bool = False,
+    prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
+) -> str:
+    """Migrate Python source code.
+
+    This function analyzes Python source code, finds functions decorated with
+    @replace_me, and replaces calls to those functions with their suggested
+    alternatives.
+
+    Args:
+        source: The Python source code to migrate.
+        interactive: Whether to prompt for each replacement.
         prompt_func: Optional custom prompt function for interactive mode.
 
     Returns:
-        The migrated source code with deprecated function calls replaced.
+        The migrated source code, or the original if no changes were made.
 
-    Example:
-        Basic migration::
-
-            source = '''
-            @replace_me()
-            def old_func(x):
-                return new_func(x * 2)
-
-            result = old_func(5)
-            '''
-
-            migrated = migrate_source(source)
-            # result = new_func(5 * 2)
-
-        Interactive migration::
-
-            migrated = migrate_source(source, interactive=True)
-            # Will prompt: Found deprecated call: old_func(5)
-            # Replace with: new_func(5 * 2)?
-            # [Y]es / [N]o / [A]ll / [Q]uit:
+    Raises:
+        SyntaxError: If the Python source code is invalid.
     """
-    # Parse the source code
-    tree = ast.parse(source)
+    # Parse with CST
+    try:
+        module = cst.parse_module(source)
+    except cst.ParserSyntaxError as e:
+        raise SyntaxError(f"Failed to parse source: {e}")
 
-    # First pass: collect imports and local deprecations
+    # Collect deprecated functions
     collector = DeprecatedFunctionCollector()
-    collector.visit(tree)
-
-    # If module_resolver is provided, analyze imported modules
-    if module_resolver:
-        for import_info in collector.imports:
-            try:
-                module_source = module_resolver(import_info.module, None)
-                if module_source:
-                    module_tree = ast.parse(module_source)
-
-                    # Collect deprecated functions from the module
-                    module_collector = DeprecatedFunctionCollector()
-                    module_collector.visit(module_tree)
-
-                    # Add imported deprecated functions to our replacements
-                    for name, alias in import_info.names:
-                        if name in module_collector.replacements:
-                            replacement_info = module_collector.replacements[name]
-                            # Use alias if provided, otherwise use original name
-                            key = alias if alias else name
-                            collector.replacements[key] = replacement_info
-            except BaseException as e:
-                logging.warning(
-                    'Failed to resolve module "%s", ignoring: %s', import_info.module, e
-                )
+    wrapper = cst.MetadataWrapper(module)
+    wrapper.visit(collector)
 
     if not collector.replacements:
+        # No deprecated functions found
         return source
 
-    # Second pass: replace function calls
+    # Create replacer
+    replacer: Union[FunctionCallReplacer, InteractiveFunctionCallReplacer]
     if interactive:
-        replacer: FunctionCallReplacer = InteractiveFunctionCallReplacer(
-            collector.replacements, prompt_func, source
+        replacer = InteractiveFunctionCallReplacer(
+            collector.replacements,
+            prompt_func=prompt_func,
+            source=source,
         )
     else:
         replacer = FunctionCallReplacer(collector.replacements)
-    new_tree = replacer.visit(tree)
 
-    # Convert back to source code
-    return ast.unparse(new_tree)
+    # Apply replacements
+    if interactive:
+        # For interactive mode, we need to wrap the replacer with metadata
+        metadata_wrapper = cst.MetadataWrapper(module)
+        modified_module = metadata_wrapper.visit(replacer)
+    else:
+        modified_module = module.visit(replacer)
+
+    # Check if any replacements were made
+    if not replacer.replaced_nodes:
+        return source
+
+    # Return the modified code with formatting preserved
+    return modified_module.code
 
 
-def migrate_file(filepath: str, write: bool = False) -> str:
-    """Migrate a Python file by inlining replace_me decorated functions.
-
-    This is a simple wrapper that reads a file, migrates its content,
-    and optionally writes it back. It only processes deprecations defined
-    within the same file.
+def migrate_file_simple(file_path: str) -> bool:
+    """Simple interface to migrate a file in-place.
 
     Args:
-        filepath: Path to the Python file to migrate.
-        write: Whether to write changes back to the file.
+        file_path: Path to the Python file to migrate.
 
     Returns:
-        The migrated source code.
-
-    Raises:
-        IOError: If the file cannot be read or written.
+        True if changes were made, False otherwise.
     """
-    with open(filepath) as f:
-        source = f.read()
-
-    new_source = migrate_source(source)
-
-    if write and new_source != source:
-        with open(filepath, "w") as f:
-            f.write(new_source)
-
-    return new_source
+    try:
+        result = migrate_file(file_path)
+        if result is not None:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(result)
+            return True
+        return False
+    except (OSError, SyntaxError) as e:
+        logging.error(f"Failed to migrate {file_path}: {e}")
+        return False
 
 
 def migrate_file_with_imports(
-    filepath: str,
-    write: bool = False,
+    file_path: str,
+    module_resolver: Optional[Callable[[str], Optional[str]]] = None,
     interactive: bool = False,
-    prompt_func: Union[Callable[[str, str], Literal["y", "n", "a", "q"]], None] = None,
-) -> str:
-    """Migrate a Python file, considering imported deprecated functions.
+    prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
+    write: bool = False,
+) -> Optional[str]:
+    """Migrate a file with automatic import management.
 
-    This enhanced version analyzes imports and attempts to fetch replacement
-    information from imported modules in the same directory structure.
-    It can handle cases where deprecated functions are imported from other
-    local modules.
+    This is a wrapper around migrate_file that provides compatibility
+    with the CLI interface. Import management is not currently implemented
+    in the CST version.
 
     Args:
-        filepath: Path to the Python file to migrate.
-        write: Whether to write changes back to the file.
-        interactive: Whether to prompt for confirmation before each replacement.
+        file_path: Path to the Python file to migrate.
+        module_resolver: Optional function to resolve module paths (not used).
+        interactive: Whether to prompt for each replacement.
         prompt_func: Optional custom prompt function for interactive mode.
+        write: Whether to write changes back to the file.
 
     Returns:
-        The migrated source code.
-
-    Raises:
-        IOError: If the file cannot be read or written.
-
-    Example:
-        If module_a.py contains::
-
-            from module_b import old_func
-            result = old_func(10)
-
-        And module_b.py contains::
-
-            @replace_me()
-            def old_func(x):
-                return new_func(x, mode="legacy")
-
-        The migration will update module_a.py to::
-
-            from module_b import old_func
-            result = new_func(10, mode="legacy")
+        The migrated source code if changes were made and write=False,
+        None otherwise.
     """
-    import os
-
-    with open(filepath) as f:
-        source = f.read()
-
-    file_dir = os.path.dirname(os.path.abspath(filepath))
-
-    # Create a module resolver for local files
-    def local_module_resolver(module_name: str, _: Optional[str]) -> Optional[str]:
-        module_path = module_name.replace(".", "/")
-        potential_paths = [
-            os.path.join(file_dir, f"{module_path}.py"),
-            os.path.join(file_dir, module_path, "__init__.py"),
-        ]
-
-        for path in potential_paths:
-            if os.path.exists(path):
-                try:
-                    with open(path) as f:
-                        return f.read()
-                except BaseException as e:
-                    logging.warning('Failed to read module "%s", ignoring: %s', path, e)
-                    continue
-        return None
-
-    new_source = migrate_source(
-        source,
-        module_resolver=local_module_resolver,
+    result = migrate_file(
+        file_path,
         interactive=interactive,
         prompt_func=prompt_func,
     )
 
-    if write and new_source != source:
-        with open(filepath, "w") as f:
-            f.write(new_source)
-
-    return new_source
+    if result is not None:
+        if write:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(result)
+            return None
+        else:
+            return result
+    return None

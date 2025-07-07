@@ -15,132 +15,93 @@
 """Function call replacement functionality.
 
 This module provides classes for replacing deprecated function calls
-with their suggested alternatives in Python AST nodes.
+with their suggested alternatives using CST for perfect formatting preservation.
 """
 
-import ast
 import difflib
 import re
 from typing import Callable, Literal, Union
 
-from .ast_utils import substitute_parameters
+import libcst as cst
+from libcst.metadata import PositionProvider
+
 from .collector import ReplaceInfo
 
 
-class FunctionCallReplacer(ast.NodeTransformer):
+class FunctionCallReplacer(cst.CSTTransformer):
     """Replaces function calls with their replacement expressions.
 
-    This AST transformer visits function calls and replaces calls to
+    This CST transformer visits function calls and replaces calls to
     deprecated functions with their suggested replacements, substituting
-    actual argument values.
+    actual argument values. CST preserves exact formatting, comments, and whitespace.
 
     Attributes:
         replacements: Mapping from function names to their replacement info.
+        replaced_nodes: Set of original nodes that were replaced.
     """
 
     def __init__(self, replacements: dict[str, ReplaceInfo]) -> None:
         self.replacements = replacements
+        self.replaced_nodes: set[cst.CSTNode] = set()
 
-    def visit_Call(self, node: ast.Call) -> ast.AST:
+    def leave_Call(
+        self, original_node: cst.Call, updated_node: cst.Call
+    ) -> cst.BaseExpression:
         """Visit Call nodes and replace deprecated function calls."""
-        self.generic_visit(node)
-
-        func_name = self._get_function_name(node)
+        func_name = self._get_function_name(updated_node)
         if func_name and func_name in self.replacements:
             replacement = self.replacements[func_name]
-            return self._create_replacement_node(node, replacement)
-        return node
+            new_node = self._create_replacement_node(updated_node, replacement)
+            if new_node is not updated_node:
+                self.replaced_nodes.add(original_node)
+                return new_node
+        return updated_node
 
-    def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+    def leave_Attribute(
+        self, original_node: cst.Attribute, updated_node: cst.Attribute
+    ) -> cst.BaseExpression:
         """Visit Attribute nodes and replace deprecated property accesses."""
-        self.generic_visit(node)
-
         # Check if this is a property access that should be replaced
-        if node.attr in self.replacements:
-            replacement = self.replacements[node.attr]
+        if updated_node.attr.value in self.replacements:
+            replacement = self.replacements[updated_node.attr.value]
             # Only replace if this is marked as a property (not a method)
             if replacement.is_property:
-                return self._create_property_replacement_node(node, replacement)
-        return node
+                new_node = self._create_property_replacement_node(
+                    updated_node, replacement
+                )
+                if new_node is not updated_node:
+                    self.replaced_nodes.add(original_node)
+                    return new_node
+        return updated_node
 
-    def _get_function_name(self, node: ast.Call) -> Union[str, None]:
+    def _get_function_name(self, node: cst.Call) -> Union[str, None]:
         """Extract the function name from a Call node."""
-        if isinstance(node.func, ast.Name):
-            return node.func.id
-        elif isinstance(node.func, ast.Attribute):
+        if isinstance(node.func, cst.Name):
+            return node.func.value
+        elif isinstance(node.func, cst.Attribute):
             # For method calls, return just the method name
             # e.g., for pack.index.object_index(), return "object_index"
-            return node.func.attr
+            return node.func.attr.value
         return None
 
-    def _create_replacement_node(
-        self, original_call: ast.Call, replacement: ReplaceInfo
-    ) -> ast.AST:
-        """Create an AST node for the replacement expression.
-
-        Args:
-            original_call: The original function call to replace.
-            replacement: Information about the replacement expression.
-
-        Returns:
-            AST node representing the replacement expression with arguments
-            substituted.
-        """
-        # Build a mapping of parameter names to their AST values
-        param_map = self._build_param_map(original_call, replacement)
-
-        # Prepare the expression by replacing placeholders with valid identifiers
-        temp_expr = replacement.replacement_expr
-        
-        # Extract all parameter placeholders
-        param_pattern = re.compile(r"\{(\w+)\}")
-        params = param_pattern.findall(replacement.replacement_expr)
-        
-        # Handle special parameters based on call type
-        if isinstance(original_call.func, ast.Attribute):
-            # Handle self/cls for method calls
-            special_param = None
-            if replacement.is_classmethod and "cls" in params:
-                special_param = ("cls", "__cls_placeholder__")
-            elif not replacement.is_staticmethod and "self" in params:
-                special_param = ("self", "__self_placeholder__")
-            
-            if special_param:
-                old_name, new_name = special_param
-                temp_expr = temp_expr.replace(f"{{{old_name}}}", new_name)
-                param_map[new_name] = original_call.func.value
-                params.remove(old_name)
-        
-        # Replace remaining parameter placeholders
-        for param in params:
-            temp_expr = temp_expr.replace(f"{{{param}}}", param)
-
-        try:
-            # Parse and substitute parameters
-            replacement_ast = ast.parse(temp_expr, mode="eval").body
-            result = substitute_parameters(replacement_ast, param_map)
-            ast.copy_location(result, original_call)
-            return result
-        except SyntaxError:
-            return original_call
-
     def _build_param_map(
-        self, call: ast.Call, replacement: ReplaceInfo
-    ) -> dict[str, ast.expr]:
-        """Build a mapping of parameter names to their AST values.
+        self, call: cst.Call, replacement: ReplaceInfo
+    ) -> dict[str, str]:
+        """Build a mapping of parameter names to their code representations.
 
         Args:
             call: The function call with arguments.
             replacement: Information about the replacement expression.
 
         Returns:
-            Dictionary mapping parameter names to their AST representations.
+            Dictionary mapping parameter names to their code strings.
         """
         # Extract parameter names from replacement expression
         param_names = re.findall(r"\{(\w+)\}", replacement.replacement_expr)
-        
-        # Filter out special parameters for method calls
-        if isinstance(call.func, ast.Attribute):
+
+        # Filter out special parameters
+        is_method_call = isinstance(call.func, cst.Attribute)
+        if is_method_call:
             special_params = []
             if replacement.is_classmethod:
                 special_params.append("cls")
@@ -150,41 +111,80 @@ class FunctionCallReplacer(ast.NodeTransformer):
 
         # Build parameter map from positional and keyword arguments
         param_map = {}
-        
+
         # Map positional arguments
-        for param_name, arg in zip(param_names, call.args):
-            param_map[param_name] = arg
+        pos_args = [arg for arg in call.args if arg.keyword is None]
+        for param_name, arg in zip(param_names, pos_args):
+            # Get the exact code for this argument
+            param_map[param_name] = cst.Module([]).code_for_node(arg.value)
 
         # Map keyword arguments (overwrites positional if same name)
-        for keyword in call.keywords:
-            if keyword.arg and keyword.arg in param_names:
-                param_map[keyword.arg] = keyword.value
+        for arg in call.args:
+            if arg.keyword and arg.keyword.value in param_names:
+                param_map[arg.keyword.value] = cst.Module([]).code_for_node(arg.value)
 
         return param_map
 
+    def _create_replacement_node(
+        self, original_call: cst.Call, replacement: ReplaceInfo
+    ) -> cst.BaseExpression:
+        """Create a CST node for the replacement expression.
+
+        Args:
+            original_call: The original function call to replace.
+            replacement: Information about the replacement expression.
+
+        Returns:
+            CST node representing the replacement expression with arguments
+            substituted.
+        """
+        # Build a mapping of parameter names to their code
+        param_map = self._build_param_map(original_call, replacement)
+
+        # Start with the replacement expression
+        replacement_code = replacement.replacement_expr
+
+        # Handle special parameters for method calls
+        if isinstance(original_call.func, cst.Attribute):
+            obj_code = cst.Module([]).code_for_node(original_call.func.value)
+            if replacement.is_classmethod and "{cls}" in replacement_code:
+                replacement_code = replacement_code.replace("{cls}", obj_code)
+            elif not replacement.is_staticmethod and "{self}" in replacement_code:
+                replacement_code = replacement_code.replace("{self}", obj_code)
+
+        # Replace parameter placeholders with actual values
+        for param_name, param_code in param_map.items():
+            replacement_code = replacement_code.replace(f"{{{param_name}}}", param_code)
+
+        try:
+            # Parse the replacement as an expression
+            return cst.parse_expression(replacement_code)
+        except cst.ParserSyntaxError:
+            # If parsing fails, return the original
+            return original_call
+
     def _create_property_replacement_node(
-        self, original_attr: ast.Attribute, replacement: ReplaceInfo
-    ) -> ast.AST:
-        """Create an AST node for the property replacement expression.
+        self, original_attr: cst.Attribute, replacement: ReplaceInfo
+    ) -> cst.BaseExpression:
+        """Create a CST node for the property replacement expression.
 
         Args:
             original_attr: The original attribute access to replace.
             replacement: Information about the replacement expression.
 
         Returns:
-            AST node representing the replacement expression with the object
+            CST node representing the replacement expression with the object
             reference substituted.
         """
-        # Replace {self} placeholder with a temporary identifier
-        temp_expr = replacement.replacement_expr.replace("{self}", "self")
+        # For properties, substitute {self} with the object
+        obj_code = cst.Module([]).code_for_node(original_attr.value)
+        replacement_code = replacement.replacement_expr.replace("{self}", obj_code)
 
         try:
-            # Parse and substitute self with the actual object
-            replacement_ast = ast.parse(temp_expr, mode="eval").body
-            result = substitute_parameters(replacement_ast, {"self": original_attr.value})
-            ast.copy_location(result, original_attr)
-            return result
-        except SyntaxError:
+            # Parse the replacement as an expression
+            return cst.parse_expression(replacement_code)
+        except cst.ParserSyntaxError:
+            # If parsing fails, return the original
             return original_attr
 
 
@@ -200,6 +200,8 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
         prompt_func: Function to prompt user for confirmation.
     """
 
+    METADATA_DEPENDENCIES = (PositionProvider,)
+
     def __init__(
         self,
         replacements: dict[str, ReplaceInfo],
@@ -213,11 +215,13 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
         self.quit = False
         self.source = source
         self.source_lines = source.splitlines() if source else None
-        self._current_node: Union[ast.Call, ast.Attribute, None] = None
+        self._current_node: Union[cst.Call, cst.Attribute, None] = None
         self._user_prompt_func = prompt_func
         # Always use our wrapper that has access to context
         self.prompt_func = self._context_aware_prompt
         self._processing_call = False
+        # Track decisions for replacements
+        self._should_replace: dict[cst.CSTNode, bool] = {}
 
     def _context_aware_prompt(
         self, old_call: str, new_call: str
@@ -231,18 +235,23 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
             return self._default_prompt(old_call, new_call)
 
     def _get_context_lines(
-        self, node: Union[ast.Call, ast.Attribute], context_size: int = 3
+        self, node: cst.CSTNode, context_size: int = 3
     ) -> tuple[list[str], int]:
         """Get source lines around the node with context.
 
         Returns:
             A tuple of (lines, index_of_node_line)
         """
-        if not self.source_lines or not hasattr(node, "lineno"):
+        if not self.source_lines:
             return [], -1
 
-        # Line numbers in AST are 1-based, convert to 0-based for list indexing
-        node_line_idx = node.lineno - 1
+        # Get position information
+        pos = self.get_metadata(PositionProvider, node, None)
+        if not pos:
+            return [], -1
+
+        # Line numbers in CST are 1-based, convert to 0-based for list indexing
+        node_line_idx = pos.start.line - 1
 
         # Calculate context range
         start_idx = max(0, node_line_idx - context_size)
@@ -321,31 +330,29 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
             else:
                 print("Invalid input. Please enter Y, N, A, or Q.")
 
-    def visit_Call(self, node: ast.Call) -> ast.AST:
+    def leave_Call(
+        self, original_node: cst.Call, updated_node: cst.Call
+    ) -> cst.BaseExpression:
         """Visit Call nodes and interactively replace deprecated function calls."""
         if self.quit:
-            return node
+            return updated_node
 
-        # Set flag to prevent processing the function attribute in visit_Attribute
-        self._processing_call = True
-        self.generic_visit(node)
-        self._processing_call = False
-
-        func_name = self._get_function_name(node)
+        func_name = self._get_function_name(updated_node)
         if func_name and func_name in self.replacements:
             replacement = self.replacements[func_name]
 
             # Get string representations of old and new calls
-            old_call_str = ast.unparse(node)
-            replacement_node = self._create_replacement_node(node, replacement)
-            new_call_str = ast.unparse(replacement_node)
+            old_call_str = cst.Module([]).code_for_node(original_node)
+            replacement_node = self._create_replacement_node(updated_node, replacement)
+            new_call_str = cst.Module([]).code_for_node(replacement_node)
 
             # Check if we should replace
             if self.replace_all:
+                self.replaced_nodes.add(original_node)
                 return replacement_node
 
             # Store current node for context in prompt
-            self._current_node = node
+            self._current_node = original_node
 
             # Prompt user
             response = self.prompt_func(old_call_str, new_call_str)
@@ -354,48 +361,47 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
             self._current_node = None
 
             if response == "y":
+                self.replaced_nodes.add(original_node)
                 return replacement_node
             elif response == "a":
                 self.replace_all = True
+                self.replaced_nodes.add(original_node)
                 return replacement_node
             elif response == "q":
                 self.quit = True
-                return node
+                return updated_node
             else:  # response == "n"
-                return node
+                return updated_node
 
-        return node
+        return updated_node
 
-    def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+    def leave_Attribute(
+        self, original_node: cst.Attribute, updated_node: cst.Attribute
+    ) -> cst.BaseExpression:
         """Visit Attribute nodes and interactively replace deprecated property accesses."""
         if self.quit:
-            return node
-
-        # Skip if we're processing a call (method calls are handled by visit_Call)
-        if self._processing_call:
-            return self.generic_visit(node)
-
-        self.generic_visit(node)
+            return updated_node
 
         # Check if this is a property access that should be replaced
-        if node.attr in self.replacements:
-            replacement = self.replacements[node.attr]
+        if updated_node.attr.value in self.replacements:
+            replacement = self.replacements[updated_node.attr.value]
 
             # Only replace if this is marked as a property (not a method)
             if replacement.is_property:
                 # Get string representations of old and new attribute access
-                old_attr_str = ast.unparse(node)
+                old_attr_str = cst.Module([]).code_for_node(original_node)
                 replacement_node = self._create_property_replacement_node(
-                    node, replacement
+                    updated_node, replacement
                 )
-                new_attr_str = ast.unparse(replacement_node)
+                new_attr_str = cst.Module([]).code_for_node(replacement_node)
 
                 # Check if we should replace
                 if self.replace_all:
+                    self.replaced_nodes.add(original_node)
                     return replacement_node
 
                 # Store current node for context in prompt
-                self._current_node = node
+                self._current_node = original_node
 
                 # Prompt user
                 response = self.prompt_func(old_attr_str, new_attr_str)
@@ -404,14 +410,16 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
                 self._current_node = None
 
                 if response == "y":
+                    self.replaced_nodes.add(original_node)
                     return replacement_node
                 elif response == "a":
                     self.replace_all = True
+                    self.replaced_nodes.add(original_node)
                     return replacement_node
                 elif response == "q":
                     self.quit = True
-                    return node
+                    return updated_node
                 else:  # response == "n"
-                    return node
+                    return updated_node
 
-        return node
+        return updated_node

@@ -18,11 +18,11 @@ This module provides tools to collect and analyze functions decorated with
 @replace_me, extracting replacement expressions and import information.
 """
 
-import ast
 import re
-from typing import Union
+from typing import Optional, Union
 
-from .ast_helpers import is_replace_me_decorator
+import libcst as cst
+
 from .types import ReplacementExtractionError, ReplacementFailureReason
 
 
@@ -81,12 +81,14 @@ class ImportInfo:
         self.names = names  # List of (name, alias) tuples
 
 
-class DeprecatedFunctionCollector(ast.NodeVisitor):
+class DeprecatedFunctionCollector(cst.CSTVisitor):
     """Collects information about functions decorated with @replace_me.
 
-    This AST visitor traverses Python source code to find:
+    This CST visitor traverses Python source code to find:
     - Functions decorated with @replace_me
     - Import statements for resolving external deprecated functions
+
+    CST preserves exact formatting, comments, and whitespace.
 
     Attributes:
         replacements: Mapping from function names to their replacement info.
@@ -97,69 +99,126 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
         self.replacements: dict[str, ReplaceInfo] = {}
         self.unreplaceable: dict[str, UnreplaceableNode] = {}
         self.imports: list[ImportInfo] = []
+        self._current_decorators: list[cst.Decorator] = []
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
+        """Store decorators for processing when we leave the function."""
+        self._current_decorators = list(node.decorators)
+
+    def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
         """Process function definitions to find @replace_me decorators."""
-        self._process_decorated_node(node)
-        self.generic_visit(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        """Process async function definitions to find @replace_me decorators."""
-        self._process_decorated_node(node)
-        self.generic_visit(node)
-
-    def _process_decorated_node(
-        self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]
-    ) -> None:
-        """Process any decorated node (function or property) to find @replace_me decorators."""
         # Check decorator types
         is_property = any(
-            isinstance(d, ast.Name) and d.id == "property" for d in node.decorator_list
+            self._is_decorator_named(d, "property") for d in self._current_decorators
         )
         is_classmethod = any(
-            isinstance(d, ast.Name) and d.id == "classmethod"
-            for d in node.decorator_list
+            self._is_decorator_named(d, "classmethod") for d in self._current_decorators
         )
         is_staticmethod = any(
-            isinstance(d, ast.Name) and d.id == "staticmethod"
-            for d in node.decorator_list
+            self._is_decorator_named(d, "staticmethod")
+            for d in self._current_decorators
         )
 
-        for decorator in node.decorator_list:
-            if is_replace_me_decorator(decorator):
-                # For the new format, extract replacement from function/property body
-                try:
-                    replacement_expr = self._extract_replacement_from_body(node)
-                except ReplacementExtractionError as e:
-                    # If extraction fails, mark as unreplaceable
-                    self.unreplaceable[node.name] = UnreplaceableNode(
-                        node.name, e.failure_reason, e.details or "No details provided"
-                    )
-                else:
-                    # Create ReplaceInfo with appropriate flags
-                    self.replacements[node.name] = ReplaceInfo(
-                        node.name,
-                        replacement_expr,
-                        is_property=is_property,
-                        is_classmethod=is_classmethod,
-                        is_staticmethod=is_staticmethod,
-                    )
+        # Check for @replace_me
+        has_replace_me = any(
+            self._is_replace_me_decorator(d) for d in self._current_decorators
+        )
 
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if has_replace_me:
+            func_name = original_node.name.value
+            try:
+                replacement_expr = self._extract_replacement_from_body(original_node)
+                self.replacements[func_name] = ReplaceInfo(
+                    func_name,
+                    replacement_expr,
+                    is_property=is_property,
+                    is_classmethod=is_classmethod,
+                    is_staticmethod=is_staticmethod,
+                )
+            except ReplacementExtractionError as e:
+                self.unreplaceable[func_name] = UnreplaceableNode(
+                    func_name, e.failure_reason, e.details or "No details provided"
+                )
+
+        self._current_decorators = []
+
+    def visit_ImportFrom(self, node: cst.ImportFrom) -> None:
         """Collect import information for module resolution."""
-        if node.module:
-            names = [(alias.name, alias.asname) for alias in node.names]
-            self.imports.append(ImportInfo(node.module, names))
-        self.generic_visit(node)
+        if node.module is None:
+            return
 
-    def _extract_replacement_from_body(
-        self,
-        func_def: Union[ast.FunctionDef, ast.AsyncFunctionDef],
-    ) -> str:
+        # Extract module name
+        module_name = self._get_module_name(node.module)
+        if not module_name:
+            return
+
+        # Extract imported names
+        names: list[tuple[str, Optional[str]]] = []
+        if isinstance(node.names, cst.ImportStar):
+            names = [("*", None)]
+        else:
+            for name in node.names:
+                if isinstance(name, cst.ImportAlias):
+                    import_name = self._get_name_value(name.name)
+                    alias = self._get_name_value(name.asname) if name.asname else None
+                    if import_name:
+                        names.append((import_name, alias))
+
+        if names:
+            self.imports.append(ImportInfo(module_name, names))
+
+    def _is_decorator_named(self, decorator: cst.Decorator, name: str) -> bool:
+        """Check if decorator has the given name."""
+        dec = decorator.decorator
+
+        # Handle @name
+        if isinstance(dec, cst.Name):
+            return dec.value == name
+        # Handle @module.name
+        elif isinstance(dec, cst.Attribute):
+            return dec.attr.value == name
+        # Handle @name() or @module.name()
+        elif isinstance(dec, cst.Call):
+            if isinstance(dec.func, cst.Name):
+                return dec.func.value == name
+            elif isinstance(dec.func, cst.Attribute):
+                return dec.func.attr.value == name
+        return False
+
+    def _is_replace_me_decorator(self, decorator: cst.Decorator) -> bool:
+        """Check if decorator is @replace_me."""
+        return self._is_decorator_named(decorator, "replace_me")
+
+    def _get_module_name(self, module: Union[cst.Name, cst.Attribute]) -> str:
+        """Extract module name from a Name or Attribute node."""
+        if isinstance(module, cst.Name):
+            return module.value
+        elif isinstance(module, cst.Attribute):
+            parts = []
+            current: cst.BaseExpression = module
+            while isinstance(current, cst.Attribute):
+                parts.append(current.attr.value)
+                current = current.value
+            if isinstance(current, cst.Name):
+                parts.append(current.value)
+            return ".".join(reversed(parts))
+        return ""
+
+    def _get_name_value(self, name: Union[cst.Name, cst.Attribute, cst.AsName]) -> str:
+        """Extract string value from various name nodes."""
+        if isinstance(name, cst.Name):
+            return name.value
+        elif isinstance(name, cst.AsName) and isinstance(name.name, cst.Name):
+            return name.name.value
+        elif isinstance(name, cst.Attribute):
+            return self._get_module_name(name)
+        return ""
+
+    def _extract_replacement_from_body(self, func_def: cst.FunctionDef) -> str:
         """Extract replacement expression from function body.
 
         Args:
-            func_def: The function definition AST node.
+            func_def: The function definition CST node.
 
         Returns:
             The replacement expression with parameter placeholders
@@ -169,45 +228,94 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
         """
         if not func_def.body:
             raise ReplacementExtractionError(
-                func_def.name,
+                func_def.name.value,
                 ReplacementFailureReason.COMPLEX_BODY,
                 "Function has no body",
             )
 
-        if len(func_def.body) != 1:
+        # Handle single-line functions (SimpleStatementSuite) vs multi-line (IndentedBlock)
+        if isinstance(func_def.body, cst.SimpleStatementSuite):
+            # Single-line function like: def f(): return x
+            body_stmts = list(func_def.body.body)  # type: ignore[arg-type]
+        elif isinstance(func_def.body, cst.IndentedBlock):
+            # Multi-line function with indented body
+            body_stmts = list(func_def.body.body)  # type: ignore[arg-type]
+            # Skip docstring if present
+            if body_stmts and self._is_docstring(body_stmts[0]):
+                body_stmts = body_stmts[1:]
+        else:
             raise ReplacementExtractionError(
-                func_def.name,
+                func_def.name.value,
                 ReplacementFailureReason.COMPLEX_BODY,
-                "Function has multiple statements",
+                "Unexpected body type",
             )
 
-        stmt = func_def.body[0]
-        if not isinstance(stmt, ast.Return):
-            # Special case: pass statement is valid but not extractable
-            if isinstance(stmt, ast.Pass):
+        if not body_stmts:
+            raise ReplacementExtractionError(
+                func_def.name.value,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Function has no body statements",
+            )
+
+        if len(body_stmts) != 1:
+            raise ReplacementExtractionError(
+                func_def.name.value,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Function has multiple statements (excluding docstring)",
+            )
+
+        stmt = body_stmts[0]
+
+        # Extract the return statement
+        return_stmt = None
+
+        # Handle different statement types
+        if isinstance(stmt, cst.Return):
+            # Direct return statement (from single-line functions)
+            return_stmt = stmt
+        elif isinstance(stmt, cst.SimpleStatementLine):
+            # Return statement wrapped in SimpleStatementLine (from multi-line functions)
+            if stmt.body and isinstance(stmt.body[0], cst.Return):
+                return_stmt = stmt.body[0]
+            elif stmt.body and isinstance(stmt.body[0], cst.Pass):
+                # Special case: pass statement is valid
                 return "None"
-            raise ReplacementExtractionError(
-                func_def.name,
-                ReplacementFailureReason.COMPLEX_BODY,
-                "Function does not have a return statement",
-            )
 
-        if not stmt.value:
-            raise ReplacementExtractionError(
-                func_def.name,
-                ReplacementFailureReason.COMPLEX_BODY,
-                "Function has empty return statement",
-            )
+        if return_stmt:
+            if not return_stmt.value:
+                raise ReplacementExtractionError(
+                    func_def.name.value,
+                    ReplacementFailureReason.COMPLEX_BODY,
+                    "Function has empty return statement",
+                )
+            # Get the exact code for the return value, preserving formatting
+            replacement_expr = cst.Module([]).code_for_node(return_stmt.value)
 
-        # Create a template with parameter placeholders
-        replacement_expr = ast.unparse(stmt.value)
+            # Replace parameters with placeholders
+            for param in func_def.params.params:
+                if isinstance(param.name, cst.Name):
+                    param_name = param.name.value
+                    # Use word boundary regex to avoid replacing parts of other identifiers
+                    replacement_expr = re.sub(
+                        rf"\b{re.escape(param_name)}\b",
+                        f"{{{param_name}}}",
+                        replacement_expr,
+                    )
 
-        # Replace parameter names with placeholders using word boundaries
-        for arg in func_def.args.args:
-            param_name = arg.arg
-            # Use word boundary regex to avoid replacing parts of other identifiers
-            replacement_expr = re.sub(
-                rf"\b{re.escape(param_name)}\b", f"{{{param_name}}}", replacement_expr
-            )
+            return replacement_expr
 
-        return replacement_expr
+        raise ReplacementExtractionError(
+            func_def.name.value,
+            ReplacementFailureReason.COMPLEX_BODY,
+            "Function does not have a return statement",
+        )
+
+    def _is_docstring(self, stmt: cst.BaseSmallStatement) -> bool:
+        """Check if statement is a docstring."""
+        if isinstance(stmt, cst.SimpleStatementLine):
+            if stmt.body and isinstance(stmt.body[0], cst.Expr):
+                expr = stmt.body[0]
+                return isinstance(
+                    expr.value, (cst.SimpleString, cst.ConcatenatedString)
+                )
+        return False

@@ -67,8 +67,8 @@ The core migration logic that orchestrates the transformation process:
 
 #### 4. Command-Line Interface (`__main__.py`)
 Four main commands:
-- `dissolve migrate`: Automatically replace deprecated calls
-- `dissolve remove`: Clean up `@replace_me` decorators
+- `dissolve migrate`: Automatically replace deprecated calls (for library users)
+- `dissolve cleanup`: Remove deprecated functions entirely (for library maintainers)
 - `dissolve check`: Validate that decorators can be migrated
 - `dissolve info`: List all deprecated functions and replacements
 
@@ -131,13 +131,13 @@ Parse AST → Find @replace_me functions → Validate function bodies
 Check for complex bodies/recursive calls → Report errors/success
 ```
 
-### 3. Decorator Removal Workflow
+### 3. Function Cleanup Workflow (for library maintainers)
 ```
 Source Code Input
     ↓
-Parse AST → Find @replace_me decorators → Check version constraints
+Parse AST → Find @replace_me functions → Check version constraints
     ↓
-Remove matching decorators → Preserve functions → Output cleaned code
+Remove matching functions entirely → Output cleaned code
 ```
 
 ## Design Patterns
@@ -146,7 +146,7 @@ Remove matching decorators → Preserve functions → Output cleaned code
 Extensive use of `ast.NodeVisitor` and `ast.NodeTransformer`:
 - `DeprecatedFunctionCollector`: Collects deprecated function information
 - `FunctionCallReplacer`: Transforms function calls
-- `ReplaceRemover`: Removes decorators
+- `ReplaceRemover`: Removes deprecated functions
 - `ContextAnalyzer`: Analyzes module context
 
 ### Strategy Pattern

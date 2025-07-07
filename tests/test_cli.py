@@ -232,8 +232,8 @@ result = regular_function(5)
         os.unlink(temp_path)
 
 
-def test_remove_check_no_decorators():
-    """Test remove --check with files that have no decorators to remove."""
+def test_cleanup_check_no_decorators():
+    """Test cleanup --check with files that have no decorators to remove."""
     source = """def regular_function(x):
     return x + 1
 
@@ -250,7 +250,7 @@ result = regular_function(5)
         sys.stdout = StringIO()
 
         try:
-            exit_code = main(["remove", "--check", "--all", temp_path])
+            exit_code = main(["cleanup", "--check", "--all", temp_path])
             output = sys.stdout.getvalue()
         finally:
             sys.stdout = old_stdout
@@ -261,8 +261,8 @@ result = regular_function(5)
         os.unlink(temp_path)
 
 
-def test_remove_check_has_decorators():
-    """Test remove --check with files that have decorators to remove."""
+def test_cleanup_check_has_decorators():
+    """Test cleanup --check with files that have decorators to remove."""
     source = """
 from dissolve import replace_me
 
@@ -283,19 +283,19 @@ result = old_func(5)
         sys.stdout = StringIO()
 
         try:
-            exit_code = main(["remove", "--check", "--all", temp_path])
+            exit_code = main(["cleanup", "--check", "--all", temp_path])
             output = sys.stdout.getvalue()
         finally:
             sys.stdout = old_stdout
 
         assert exit_code == 1
-        assert "needs decorator removal" in output
+        assert "needs function cleanup" in output
     finally:
         os.unlink(temp_path)
 
 
-def test_remove_check_before_version():
-    """Test remove --check with version filtering."""
+def test_cleanup_check_before_version():
+    """Test cleanup --check with version filtering."""
     source = """
 from dissolve import replace_me
 
@@ -318,20 +318,20 @@ def newer_func(x):
         sys.stdout = StringIO()
 
         try:
-            exit_code = main(["remove", "--check", "--before", "1.0.0", temp_path])
+            exit_code = main(["cleanup", "--check", "--before", "1.0.0", temp_path])
             output = sys.stdout.getvalue()
         finally:
             sys.stdout = old_stdout
 
         # Should detect removable decorators (0.5.0 < 1.0.0)
         assert exit_code == 1
-        assert "needs decorator removal" in output
+        assert "needs function cleanup" in output
     finally:
         os.unlink(temp_path)
 
 
-def test_remove_check_write_conflict():
-    """Test that remove --check and --write cannot be used together."""
+def test_cleanup_check_write_conflict():
+    """Test that cleanup --check and --write cannot be used together."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write("print('test')")
         temp_path = f.name
@@ -343,7 +343,7 @@ def test_remove_check_write_conflict():
 
         try:
             # argparse.error() raises SystemExit
-            exit_code = main(["remove", "--check", "--write", temp_path])
+            exit_code = main(["cleanup", "--check", "--write", temp_path])
         except SystemExit as e:
             exit_code = e.code
             error_output = sys.stderr.getvalue()
@@ -581,8 +581,8 @@ def deep_func(x):
         assert "Migration:" in output
 
 
-def test_remove_module_flag_no_decorators():
-    """Test remove -m with a module that has no decorators to remove."""
+def test_cleanup_module_flag_no_decorators():
+    """Test cleanup -m with a module that has no decorators to remove."""
     source = """
 def regular_function(x):
     return x + 1
@@ -599,7 +599,7 @@ result = regular_function(5)
         sys.stdout = StringIO()
 
         try:
-            exit_code = main(["remove", "-m", "--all", "clean_module"])
+            exit_code = main(["cleanup", "-m", "--all", "clean_module"])
             output = sys.stdout.getvalue()
         finally:
             sys.stdout = old_stdout
@@ -609,8 +609,8 @@ result = regular_function(5)
         assert len(output) >= 0
 
 
-def test_remove_module_flag_with_decorators():
-    """Test remove -m with a module."""
+def test_cleanup_module_flag_with_decorators():
+    """Test cleanup -m with a module."""
     source = """
 def old_func(x):
     return x + 1
@@ -627,7 +627,7 @@ result = old_func(5)
         sys.stdout = StringIO()
 
         try:
-            exit_code = main(["remove", "-m", "--all", "removeme_module"])
+            exit_code = main(["cleanup", "-m", "--all", "removeme_module"])
             sys.stdout.getvalue()
         finally:
             sys.stdout = old_stdout
@@ -635,8 +635,8 @@ result = old_func(5)
         assert exit_code == 0 or exit_code is None
 
 
-def test_remove_module_flag_check_mode():
-    """Test remove -m --check with a module."""
+def test_cleanup_module_flag_check_mode():
+    """Test cleanup -m --check with a module."""
     source = """
 def old_func(x):
     return x + 1
@@ -653,7 +653,9 @@ result = old_func(5)
         sys.stdout = StringIO()
 
         try:
-            exit_code = main(["remove", "-m", "--check", "--all", "checkremove_module"])
+            exit_code = main(
+                ["cleanup", "-m", "--check", "--all", "checkremove_module"]
+            )
             sys.stdout.getvalue()
         finally:
             sys.stdout = old_stdout
@@ -767,8 +769,8 @@ def func2(x):
             assert "Migration:" in output
 
 
-def test_remove_current_version_flag():
-    """Test remove --current-version flag."""
+def test_cleanup_current_version_flag():
+    """Test cleanup --current-version flag."""
     source = """
 from dissolve import replace_me
 
@@ -792,7 +794,7 @@ def newer_func(y):
 
         try:
             # Current version 2.0.0 - should remove old_func decorator
-            exit_code = main(["remove", "--current-version", "2.0.0", temp_path])
+            exit_code = main(["cleanup", "--current-version", "2.0.0", temp_path])
             output = sys.stdout.getvalue()
         finally:
             sys.stdout = old_stdout
@@ -803,17 +805,18 @@ def newer_func(y):
             '@replace_me(since="1.0.0", remove_in="2.0.0")' not in output
             and "@replace_me(since='1.0.0', remove_in='2.0.0')" not in output
         )
-        assert "def old_func(x):" in output
+        assert "def old_func(x):" not in output  # Function should be completely removed
         assert (
             '@replace_me(since="1.5.0", remove_in="3.0.0")' in output
             or "@replace_me(since='1.5.0', remove_in='3.0.0')" in output
         )
+        assert "def newer_func(y):" in output  # This function should remain
     finally:
         os.unlink(temp_path)
 
 
-def test_remove_current_version_with_check():
-    """Test remove --current-version with --check flag."""
+def test_cleanup_current_version_with_check():
+    """Test cleanup --current-version with --check flag."""
     source = """
 from dissolve import replace_me
 
@@ -834,14 +837,14 @@ def old_func(x):
         try:
             # Current version 2.0.0 - should detect removable decorator
             exit_code = main(
-                ["remove", "--check", "--current-version", "2.0.0", temp_path]
+                ["cleanup", "--check", "--current-version", "2.0.0", temp_path]
             )
             output = sys.stdout.getvalue()
         finally:
             sys.stdout = old_stdout
 
         assert exit_code == 1  # Should detect changes needed
-        assert "needs decorator removal" in output
+        assert "needs function cleanup" in output
     finally:
         os.unlink(temp_path)
 

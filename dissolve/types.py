@@ -14,7 +14,6 @@
 
 """Type definitions for dissolve."""
 
-import ast
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional, Protocol, TypeVar, Union
@@ -23,7 +22,6 @@ from typing import Any, Callable, Optional, Protocol, TypeVar, Union
 F = TypeVar("F", bound=Callable[..., Any])
 
 # Type aliases for better readability
-FunctionDefNode = Union[ast.FunctionDef, ast.AsyncFunctionDef]
 VersionType = Union[tuple[int, ...], str, None]
 
 

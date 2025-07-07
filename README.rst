@@ -37,11 +37,24 @@ deprecated function call with the suggested replacement:
 
 .. code-block:: console
 
-   $ dissolve migrate myproject/utils.py
-   Migrated: myproject/utils.py
+   $ dissolve migrate --write myproject/utils.py
+   Modified: myproject/utils.py
    ...
    result = increment(x=3)
    ...
+
+**For library users**: The migration step above is typically all you need.
+Your code now uses the new ``increment`` function instead of the deprecated ``inc`` function.
+
+**For library maintainers**: After users have had time to migrate and you're ready
+to remove the deprecated function from your library, you can use ``dissolve cleanup``:
+
+.. code-block:: console
+
+   $ dissolve cleanup --all --write myproject/utils.py
+   Modified: myproject/utils.py
+
+This removes the ``inc`` function entirely from the library, leaving only the ``increment`` function.
 
 dissolve migrate
 ================
@@ -101,53 +114,74 @@ The command respects the replacement expressions defined in the ``@replace_me``
 decorator and substitutes actual argument values.
 
 
-dissolve remove
-===============
+dissolve cleanup
+================
 
-The ``dissolve remove`` command can remove ``@replace_me`` decorators from your
-codebase. This is useful when you want to clean up old deprecation markers.
+The ``dissolve cleanup`` command is designed for **library maintainers** to remove
+deprecated functions from their codebase after a deprecation period has ended.
+This command removes the entire function definition, not just the ``@replace_me`` 
+decorator.
+
+**Audience**: This command is primarily for library authors who want to clean up
+their APIs after users have had time to migrate away from deprecated functions.
+
+**Important**: This command removes the entire function definition, which will
+break any code that still calls these functions. Only use this after:
+
+1. Sufficient time has passed for users to migrate (based on your deprecation policy)
+2. You've verified that usage of these functions has dropped to acceptable levels
+3. You're prepared to release a new major version (if following semantic versioning)
 
 Usage:
 
 .. code-block:: console
 
-   $ dissolve remove [options] path/to/code
+   $ dissolve cleanup [options] path/to/code
 
 Options:
 
-* ``--all``: Remove all ``@replace_me`` decorators regardless of version
-* ``--before VERSION``: Remove only decorators with a version older than the specified version
+* ``--all``: Remove all functions with ``@replace_me`` decorators regardless of version
+* ``--before VERSION``: Remove only functions with decorators older than the specified version
+* ``--current-version VERSION``: Remove functions marked with ``remove_in`` <= current version
 * ``-w, --write``: Write changes back to files (default: print to stdout)
-* ``--check``: Check if files have removable decorators without modifying them (exits with code 1 if changes are needed)
+* ``--check``: Check if files have deprecated functions that can be removed without modifying them (exits with code 1 if changes are needed)
 
 Examples:
 
-Check if decorators can be removed:
+Check if deprecated functions can be removed:
 
 .. code-block:: console
 
-   $ dissolve remove --check --all myproject/
-   myproject/utils.py: has removable decorators
-   myproject/core.py: no removable decorators
+   $ dissolve cleanup --check --current-version 2.0.0 mylib/
+   mylib/utils.py: needs function cleanup
+   mylib/core.py: up to date
    $ echo $?
    1
 
-Remove all decorators:
+Remove functions scheduled for removal in version 2.0.0:
 
 .. code-block:: console
 
-   $ dissolve remove --all --write myproject/
-   Modified: myproject/utils.py
-   Unchanged: myproject/core.py
+   $ dissolve cleanup --current-version 2.0.0 --write mylib/
+   Modified: mylib/utils.py
+   Unchanged: mylib/core.py
 
-Remove decorators before version 2.0.0:
+Remove functions deprecated before version 2.0.0:
 
 .. code-block:: console
 
-   $ dissolve remove --before 2.0.0 --write myproject/
+   $ dissolve cleanup --before 2.0.0 --write mylib/
 
-This will remove decorators like ``@replace_me(since="1.0.0")`` but keep
-``@replace_me(since="2.0.0")`` and newer.
+This will remove functions like those decorated with ``@replace_me(since="1.0.0")`` 
+but keep functions with ``@replace_me(since="2.0.0")`` and newer.
+
+**Typical workflow for library maintainers:**
+
+1. Add ``@replace_me(since="X.Y.Z", remove_in="A.B.C")`` to deprecated functions
+2. Release version X.Y.Z with deprecation warnings
+3. Wait for the planned removal version A.B.C
+4. Run ``dissolve cleanup --current-version A.B.C --write`` to remove deprecated functions
+5. Release version A.B.C as a new major version
 
 
 dissolve check

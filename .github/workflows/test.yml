@@ -24,19 +24,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -U .
+          python -m pip install -U ".[migrate]"
       - name: Style checks
         run: |
-          pip install ruff
+          python -m pip install ruff
           python -m ruff check .
           python -m ruff format --check .
       - name: Typing checks
         run: |
-          pip install -U mypy
+          python -m pip install -U mypy
           python -m mypy dissolve
       - name: Test suite run
         run: |
-          pip install tox
+          python -m pip install tox
           tox
         env:
           PYTHONHASHSEED: random

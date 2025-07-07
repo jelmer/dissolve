@@ -14,10 +14,11 @@
 
 """Utilities for analyzing and managing imports in Python code."""
 
-import ast
 import builtins
 from dataclasses import dataclass
 from typing import Optional
+
+import libcst as cst
 
 
 @dataclass
@@ -27,11 +28,6 @@ class ImportInfo:
     module: str
     names: list[tuple[str, Optional[str]]]  # List of (name, alias) tuples
     level: int = 0  # For relative imports
-
-    def to_ast(self) -> ast.ImportFrom:
-        """Convert to an AST ImportFrom node."""
-        aliases = [ast.alias(name=name, asname=alias) for name, alias in self.names]
-        return ast.ImportFrom(module=self.module, names=aliases, level=self.level)
 
 
 @dataclass
@@ -50,173 +46,262 @@ class ImportRequirement:
             return False
         for name, alias in import_info.names:
             if name == self.name:
-                # If we need a specific alias, check it matches
+                # Check if alias matches (if we have one)
                 if self.alias is not None:
                     return alias == self.alias
                 return True
         return False
 
 
-class ImportAnalyzer(ast.NodeVisitor):
-    """Analyze AST to find required imports."""
+class ImportAnalyzer(cst.CSTVisitor):
+    """Analyzes expressions to find required imports using CST."""
 
     def __init__(self) -> None:
-        self.function_names: set[str] = set()
-        self.attribute_accesses: dict[str, set[str]] = {}  # module -> attributes
-        self.all_names: set[str] = set()
+        self.requirements: set[ImportRequirement] = set()
+        self.in_attribute = False
 
-    def visit_Call(self, node: ast.Call) -> None:
-        """Track function calls specifically."""
-        if isinstance(node.func, ast.Name):
-            self.function_names.add(node.func.id)
-        elif isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                module_name = node.func.value.id
-                if module_name not in self.attribute_accesses:
-                    self.attribute_accesses[module_name] = set()
-                self.attribute_accesses[module_name].add(node.func.attr)
-        self.generic_visit(node)
+    def visit_Name(self, node: cst.Name) -> None:
+        """Visit Name nodes to find potential import requirements."""
+        name = node.value
 
-    def visit_Name(self, node: ast.Name) -> None:
-        """Track all name references."""
-        if isinstance(node.ctx, ast.Load):
-            self.all_names.add(node.id)
-        self.generic_visit(node)
-
-
-def extract_imports_from_expression(expr: str) -> list[ImportRequirement]:
-    """Extract potential import requirements from a replacement expression.
-
-    Args:
-        expr: Python expression that may contain references to imported names
-
-    Returns:
-        List of import requirements found in the expression
-    """
-    try:
-        tree = ast.parse(expr, mode="eval")
-    except SyntaxError:
-        return []
-
-    analyzer = ImportAnalyzer()
-    analyzer.visit(tree)
-
-    requirements = []
-
-    # Process function calls as potential imports
-    builtins_set = set(dir(builtins))
-
-    for name in analyzer.function_names:
-        # Skip common builtins
-        if name in builtins_set:
-            continue
-        # Create a requirement (we don't know the module yet)
-        requirements.append(ImportRequirement(module="", name=name))
-
-    # Process module.function patterns
-    for module, attrs in analyzer.attribute_accesses.items():
-        # The module itself might need to be imported
-        requirements.append(ImportRequirement(module="", name=module))
-
-    return requirements
-
-
-class ImportManager:
-    """Manages imports in Python source code."""
-
-    def __init__(self, tree: ast.Module):
-        self.tree = tree
-        self.imports: list[ImportInfo] = []
-        self._collect_imports()
-
-    def _collect_imports(self) -> None:
-        """Collect existing imports from the AST."""
-        for node in self.tree.body:
-            if isinstance(node, ast.ImportFrom):
-                names = [(alias.name, alias.asname) for alias in node.names]
-                self.imports.append(
-                    ImportInfo(module=node.module or "", names=names, level=node.level)
-                )
-            elif isinstance(node, ast.Import):
-                # Convert Import to ImportFrom format for consistency
-                for alias in node.names:
-                    self.imports.append(
-                        ImportInfo(
-                            module=alias.name,
-                            names=[(alias.name, alias.asname)],
-                            level=0,
-                        )
-                    )
-
-    def has_import(self, requirement: ImportRequirement) -> bool:
-        """Check if a required import already exists."""
-        for imp in self.imports:
-            if requirement.matches(imp):
-                return True
-        return False
-
-    def add_import(self, requirement: ImportRequirement) -> None:
-        """Add a new import if it doesn't already exist."""
-        if self.has_import(requirement):
+        # Skip if it's a Python builtin
+        if hasattr(builtins, name):
             return
 
-        # Find existing import from the same module
-        for imp in self.imports:
-            if imp.module == requirement.module:
-                # Add to existing import
-                imp.names.append((requirement.name, requirement.alias))
-                # Need to rebuild AST nodes when modifying existing imports
-                self._rebuild_import_nodes()
-                return
+        # Skip if we're part of an attribute access
+        if self.in_attribute:
+            return
 
-        # Create new import
-        new_import = ImportInfo(
-            module=requirement.module,
-            names=[(requirement.name, requirement.alias)],
-            level=0,
+        # Common patterns for module names
+        common_modules = {
+            "np": "numpy",
+            "pd": "pandas",
+            "plt": "matplotlib.pyplot",
+            "tf": "tensorflow",
+            "torch": "torch",
+            "cv2": "cv2",
+        }
+
+        # Check if it's a known alias
+        if name in common_modules:
+            self.requirements.add(
+                ImportRequirement(
+                    module=common_modules[name],
+                    name=common_modules[name].split(".")[-1],
+                    alias=name,
+                    suggested_module=common_modules[name],
+                )
+            )
+        else:
+            # Mark as potentially a local reference
+            self.requirements.add(
+                ImportRequirement(
+                    module="",  # Unknown module
+                    name=name,
+                    is_local_reference=True,
+                )
+            )
+
+    def visit_Attribute(self, node: cst.Attribute) -> None:
+        """Visit Attribute nodes to find module.function patterns."""
+        # Set flag to skip the attribute name itself
+        self.in_attribute = True
+        # Visit the value part of the attribute
+        node.value.visit(self)
+        self.in_attribute = False
+
+        # Check for common module patterns
+        if isinstance(node.value, cst.Name):
+            module_name = node.value.value
+            attr_name = node.attr.value
+
+            # Common module patterns
+            if module_name in ["os", "sys", "re", "json", "math", "datetime"]:
+                self.requirements.add(
+                    ImportRequirement(
+                        module=module_name,
+                        name=attr_name,
+                    )
+                )
+            elif module_name == "np" and attr_name in ["array", "zeros", "ones"]:
+                self.requirements.add(
+                    ImportRequirement(
+                        module="numpy",
+                        name=attr_name,
+                        alias="np",
+                        suggested_module="numpy",
+                    )
+                )
+
+
+def analyze_import_requirements(expr: str) -> set[ImportRequirement]:
+    """Analyze an expression to determine what imports it requires.
+
+    This function parses a Python expression and identifies what names
+    need to be imported for the expression to be valid.
+
+    Args:
+        expr: Python expression to analyze
+
+    Returns:
+        Set of ImportRequirement objects
+    """
+    try:
+        # Try to parse as an expression first
+        tree = cst.parse_expression(expr)
+    except cst.ParserSyntaxError:
+        try:
+            # If that fails, try as a module (for statements)
+            tree = cst.parse_module(expr)  # type: ignore[assignment]
+        except cst.ParserSyntaxError:
+            # If both fail, return empty set
+            return set()
+
+    analyzer = ImportAnalyzer()
+    if isinstance(tree, cst.Module):
+        wrapper = cst.MetadataWrapper(tree)
+        wrapper.visit(analyzer)
+    else:
+        # For expressions, wrap in a module first
+        module = cst.Module(body=[cst.SimpleStatementLine(body=[cst.Expr(tree)])])
+        wrapper = cst.MetadataWrapper(module)
+        wrapper.visit(analyzer)
+    return analyzer.requirements
+
+
+def add_import_to_module(
+    module: cst.Module,
+    module_name: str,
+    import_names: list[tuple[str, Optional[str]]],
+    level: int = 0,
+) -> cst.Module:
+    """Add an import to a module, avoiding duplicates and maintaining order.
+
+    Args:
+        module: CST module to add import to
+        module_name: Module to import from
+        import_names: List of (name, alias) tuples to import
+        level: Import level for relative imports
+
+    Returns:
+        Modified module with import added
+    """
+    # Create the new import
+    aliases = []
+    for name, alias in import_names:
+        aliases.append(
+            cst.ImportAlias(
+                name=cst.Name(name),
+                asname=cst.AsName(
+                    name=cst.Name(alias),
+                    whitespace_before_as=cst.SimpleWhitespace(" "),
+                    whitespace_after_as=cst.SimpleWhitespace(" "),
+                )
+                if alias
+                else None,
+            )
         )
-        self.imports.append(new_import)
 
-        # Add to AST
-        import_node = new_import.to_ast()
-        # Insert after other imports
-        insert_idx = 0
-        for i, node in enumerate(self.tree.body):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                insert_idx = i + 1
+    if level > 0:
+        # Relative import
+        new_import = cst.ImportFrom(
+            module=cst.Attribute(value=cst.Name(module_name), attr=cst.Name(""))
+            if "." in module_name and module_name
+            else (cst.Name(module_name) if module_name else None),
+            names=aliases,
+            relative=[cst.Dot() for _ in range(level)],
+        )
+    else:
+        # Absolute import
+        new_import = cst.ImportFrom(
+            module=cst.Attribute(value=cst.Name(module_name), attr=cst.Name(""))
+            if "." in module_name
+            else cst.Name(module_name),
+            names=aliases,
+        )
+
+    # Check if import already exists
+    class ImportChecker(cst.CSTVisitor):
+        def __init__(
+            self, target_module: str, target_names: list[tuple[str, Optional[str]]]
+        ):
+            self.target_module = target_module
+            self.target_names = set(name for name, _ in target_names)
+            self.exists = False
+
+        def visit_ImportFrom(self, node: cst.ImportFrom) -> None:
+            if node.module and self._get_module_name(node.module) == self.target_module:
+                if isinstance(node.names, cst.ImportStar):
+                    self.exists = True
+                else:
+                    imported_names = {
+                        alias.name.value if isinstance(alias.name, cst.Name) else ""
+                        for alias in node.names
+                    }
+                    if self.target_names.issubset(imported_names):
+                        self.exists = True
+
+        def _get_module_name(self, module: cst.BaseExpression) -> str:
+            if isinstance(module, cst.Name):
+                return module.value
+            elif isinstance(module, cst.Attribute):
+                # Handle dotted imports - simplified for now
+                return str(module)
+            return ""
+
+    checker = ImportChecker(module_name, import_names)
+    wrapper = cst.MetadataWrapper(module)
+    wrapper.visit(checker)
+
+    if checker.exists:
+        return module
+
+    # Add import at the top, after any module docstring
+    body = list(module.body)
+
+    # Find the position to insert (after docstring and other imports)
+    insert_pos = 0
+
+    # Skip module docstring
+    if body and isinstance(body[0], cst.SimpleStatementLine):
+        if body[0].body and isinstance(body[0].body[0], cst.Expr):
+            if isinstance(
+                body[0].body[0].value, (cst.SimpleString, cst.ConcatenatedString)
+            ):
+                insert_pos = 1
+
+    # Find last import position
+    for i in range(insert_pos, len(body)):
+        stmt = body[i]
+        if isinstance(stmt, (cst.SimpleStatementLine, cst.BaseCompoundStatement)):
+            if isinstance(stmt, cst.SimpleStatementLine) and stmt.body:
+                first_stmt = stmt.body[0]
+                if not isinstance(first_stmt, (cst.Import, cst.ImportFrom)):
+                    break
             else:
                 break
-        self.tree.body.insert(insert_idx, import_node)
+        insert_pos = i + 1
 
-    def update_import(self, old_name: str, new_requirement: ImportRequirement) -> None:
-        """Update an existing import to use a new module/name."""
-        # Remove old import
-        for imp in self.imports:
-            new_names = []
-            for name, alias in imp.names:
-                if name != old_name:
-                    new_names.append((name, alias))
-            imp.names = new_names
+    # Create import statement line
+    import_line = cst.SimpleStatementLine(body=[new_import])
 
-        # Add new import
-        self.add_import(new_requirement)
+    # Insert the import
+    new_body = [*body[:insert_pos], import_line, *body[insert_pos:]]
 
-        # Update AST
-        self._rebuild_import_nodes()
+    return module.with_changes(body=new_body)
 
-    def _rebuild_import_nodes(self) -> None:
-        """Rebuild import nodes in the AST based on current imports."""
-        # Remove all import nodes
-        new_body = []
-        for node in self.tree.body:
-            if not isinstance(node, (ast.Import, ast.ImportFrom)):
-                new_body.append(node)
 
-        # Add imports back
-        import_nodes = []
-        for imp in self.imports:
-            if imp.names:  # Only add if there are names to import
-                import_nodes.append(imp.to_ast())
+def remove_unused_imports(module: cst.Module) -> cst.Module:
+    """Remove unused imports from a module.
 
-        # Reconstruct body with imports first
-        self.tree.body = import_nodes + new_body
+    This is a simplified version that could be expanded with proper usage analysis.
+
+    Args:
+        module: CST module to clean up
+
+    Returns:
+        Module with unused imports removed
+    """
+    # For now, just return the module unchanged
+    # A full implementation would analyze name usage throughout the module
+    return module
