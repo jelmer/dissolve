@@ -19,6 +19,7 @@ This module provides tools to collect and analyze functions decorated with
 """
 
 import ast
+import re
 from typing import Union
 
 from .ast_helpers import is_replace_me_decorator
@@ -202,8 +203,6 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
         replacement_expr = ast.unparse(stmt.value)
 
         # Replace parameter names with placeholders using word boundaries
-        import re
-
         for arg in func_def.args.args:
             param_name = arg.arg
             # Use word boundary regex to avoid replacing parts of other identifiers
