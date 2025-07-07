@@ -134,7 +134,7 @@ def migrate_source(
     # Second pass: replace function calls
     if interactive:
         replacer: FunctionCallReplacer = InteractiveFunctionCallReplacer(
-            collector.replacements, prompt_func
+            collector.replacements, prompt_func, source
         )
     else:
         replacer = FunctionCallReplacer(collector.replacements)

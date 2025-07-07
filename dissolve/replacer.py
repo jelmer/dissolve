@@ -19,6 +19,7 @@ with their suggested alternatives in Python AST nodes.
 """
 
 import ast
+import difflib
 from typing import Callable, Literal, Union
 
 from .ast_utils import substitute_parameters
@@ -63,6 +64,10 @@ class FunctionCallReplacer(ast.NodeTransformer):
         """Extract the function name from a Call node."""
         if isinstance(node.func, ast.Name):
             return node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            # For method calls, return just the method name
+            # e.g., for pack.index.object_index(), return "object_index"
+            return node.func.attr
         return None
 
     def _create_replacement_node(
@@ -84,8 +89,22 @@ class FunctionCallReplacer(ast.NodeTransformer):
         # Parse the replacement expression with placeholders
         # First, we need to convert {param} placeholders to valid Python identifiers
         temp_expr = replacement.replacement_expr
-        for param in param_map.keys():
-            temp_expr = temp_expr.replace(f"{{{param}}}", param)
+        
+        # Handle method calls specially
+        if isinstance(original_call.func, ast.Attribute):
+            # For method calls, replace {self} with a placeholder that we'll substitute
+            temp_expr = temp_expr.replace("{self}", "__self_placeholder__")
+            # Add the object to the param map
+            param_map["__self_placeholder__"] = original_call.func.value
+        
+        # Replace parameter placeholders - we need to extract them from the expression
+        # Look for {param} patterns in the original replacement expression
+        import re
+        param_pattern = re.compile(r'\{(\w+)\}')
+        params = param_pattern.findall(replacement.replacement_expr)
+        for param in params:
+            if param != "self":  # self is handled specially above
+                temp_expr = temp_expr.replace(f"{{{param}}}", param)
 
         try:
             # Parse the expression
@@ -121,6 +140,10 @@ class FunctionCallReplacer(ast.NodeTransformer):
         import re
 
         param_names = re.findall(r"\{(\w+)\}", replacement.replacement_expr)
+        
+        # Filter out 'self' for method calls
+        if isinstance(call.func, ast.Attribute):
+            param_names = [p for p in param_names if p != "self"]
 
         # Map positional arguments
         for i, (param_name, arg) in enumerate(zip(param_names, call.args)):
@@ -186,21 +209,104 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
         prompt_func: Union[
             Callable[[str, str], Literal["y", "n", "a", "q"]], None
         ] = None,
+        source: Union[str, None] = None,
     ) -> None:
         super().__init__(replacements)
         self.replace_all = False
         self.quit = False
-        self.prompt_func = prompt_func or self._default_prompt
+        self.source = source
+        self.source_lines = source.splitlines() if source else None
+        self._current_node: Union[ast.Call, ast.Attribute, None] = None
+        self._user_prompt_func = prompt_func
+        # Always use our wrapper that has access to context
+        self.prompt_func = self._context_aware_prompt
+        self._processing_call = False
 
+    def _context_aware_prompt(
+        self, old_call: str, new_call: str
+    ) -> Literal["y", "n", "a", "q"]:
+        """Wrapper that adds context to prompts when available."""
+        if self._user_prompt_func:
+            # User provided custom prompt, just use it
+            return self._user_prompt_func(old_call, new_call)
+        else:
+            # Use our default prompt which shows context
+            return self._default_prompt(old_call, new_call)
+    
+    def _get_context_lines(self, node: Union[ast.Call, ast.Attribute], context_size: int = 3) -> tuple[list[str], int]:
+        """Get source lines around the node with context.
+        
+        Returns:
+            A tuple of (lines, index_of_node_line)
+        """
+        if not self.source_lines or not hasattr(node, 'lineno'):
+            return [], -1
+            
+        # Line numbers in AST are 1-based, convert to 0-based for list indexing
+        node_line_idx = node.lineno - 1
+        
+        # Calculate context range
+        start_idx = max(0, node_line_idx - context_size)
+        end_idx = min(len(self.source_lines), node_line_idx + context_size + 1)
+        
+        context_lines = self.source_lines[start_idx:end_idx]
+        node_line_offset = node_line_idx - start_idx
+        
+        return context_lines, node_line_offset
+    
     def _default_prompt(
         self, old_call: str, new_call: str
     ) -> Literal["y", "n", "a", "q"]:
         """Default interactive prompt for replacement confirmation."""
-        print(f"\nFound deprecated call: {old_call}")
-        print(f"Replace with: {new_call}?")
+        print("\nFound deprecated call:")
+        
+        # If we have node context, show a context diff
+        if hasattr(self, '_current_node') and self._current_node and self.source_lines:
+            context_lines, node_line_offset = self._get_context_lines(self._current_node)
+            
+            if context_lines and node_line_offset >= 0:
+                # Create modified version with the replacement
+                modified_lines = context_lines.copy()
+                if node_line_offset < len(modified_lines):
+                    # Replace the specific call in the line
+                    original_line = modified_lines[node_line_offset]
+                    # This is a simplified replacement - in reality we'd need to handle
+                    # the exact position within the line
+                    modified_line = original_line.replace(old_call, new_call)
+                    modified_lines[node_line_offset] = modified_line
+                
+                # Create unified diff with context
+                diff = list(difflib.unified_diff(
+                    context_lines,
+                    modified_lines,
+                    fromfile="current",
+                    tofile="proposed",
+                    lineterm="",
+                    n=len(context_lines)  # Show all context lines
+                ))
+                
+                # Print the diff
+                for line in diff[2:]:  # Skip file headers
+                    if line.startswith("-"):
+                        print(f"- {line[1:]}")
+                    elif line.startswith("+"):
+                        print(f"+ {line[1:]}")
+                    elif line.startswith("@@"):
+                        # Skip the @@ line markers for cleaner output
+                        continue
+                    else:
+                        print(f"  {line}")
+            else:
+                # Fallback to simple diff
+                print(f"- {old_call}")
+                print(f"+ {new_call}")
+        else:
+            # Fallback to simple diff without context
+            print(f"- {old_call}")
+            print(f"+ {new_call}")
 
         while True:
-            response = input("[Y]es / [N]o / [A]ll / [Q]uit: ").lower().strip()
+            response = input("\n[Y]es / [N]o / [A]ll / [Q]uit: ").lower().strip()
             if response in ["y", "yes"]:
                 return "y"
             elif response in ["n", "no"]:
@@ -217,7 +323,10 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
         if self.quit:
             return node
 
+        # Set flag to prevent processing the function attribute in visit_Attribute
+        self._processing_call = True
         self.generic_visit(node)
+        self._processing_call = False
 
         func_name = self._get_function_name(node)
         if func_name and func_name in self.replacements:
@@ -232,8 +341,14 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
             if self.replace_all:
                 return replacement_node
 
+            # Store current node for context in prompt
+            self._current_node = node
+            
             # Prompt user
             response = self.prompt_func(old_call_str, new_call_str)
+            
+            # Clear current node
+            self._current_node = None
 
             if response == "y":
                 return replacement_node
@@ -253,6 +368,10 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
         if self.quit:
             return node
 
+        # Skip if we're processing a call (method calls are handled by visit_Call)
+        if self._processing_call:
+            return self.generic_visit(node)
+
         self.generic_visit(node)
 
         # Check if this is a property access that should be replaced
@@ -268,8 +387,14 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
             if self.replace_all:
                 return replacement_node
 
+            # Store current node for context in prompt
+            self._current_node = node
+            
             # Prompt user
             response = self.prompt_func(old_attr_str, new_attr_str)
+            
+            # Clear current node
+            self._current_node = None
 
             if response == "y":
                 return replacement_node

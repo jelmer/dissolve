@@ -240,6 +240,7 @@ print(normal_func(5))
         assert result == source.strip()
 
 
+
 class TestInteractiveMigration:
     def test_interactive_yes(self):
         """Test interactive mode with 'yes' responses."""
@@ -428,3 +429,41 @@ total = calc.old_sum
 
         # Check that property access is replaced with the complex expression
         assert "total = calc.x + calc.y + 10" in result
+
+    def test_interactive_method_call(self):
+        """Test interactive mode with method call replacements."""
+        source = """
+from dissolve import replace_me
+
+class Service:
+    @replace_me()
+    def old_api(self, data):
+        return self.new_api(data, version=2)
+    
+    def new_api(self, data, version):
+        return f"v{version}: {data}"
+
+svc = Service()
+result = svc.old_api("test")
+"""
+        # Track what was shown in prompts
+        prompts_shown = []
+        
+        def capture_prompt(old_call: str, new_call: str) -> Literal["y", "n", "a", "q"]:
+            prompts_shown.append((old_call, new_call))
+            return "y"  # Accept the replacement
+        
+        result = migrate_source(
+            source.strip(), interactive=True, prompt_func=capture_prompt
+        )
+        
+        # Verify prompt showed the full method call
+        assert len(prompts_shown) == 1
+        old_call, new_call = prompts_shown[0]
+        # Handle both single and double quotes
+        assert old_call in ['svc.old_api("test")', "svc.old_api('test')"]
+        assert new_call in ['svc.new_api("test", version=2)', "svc.new_api('test', version=2)"]
+        
+        # Verify replacement was made (handle quote differences)
+        assert ('svc.new_api("test", version=2)' in result or 
+                "svc.new_api('test', version=2)" in result)
