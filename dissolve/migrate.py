@@ -45,10 +45,61 @@ Example:
 
 import ast
 import logging
-from typing import Callable, Literal, Optional, Union
+from typing import Callable, List, Literal, Optional, Tuple, Union
 
 from .collector import DeprecatedFunctionCollector
 from .replacer import FunctionCallReplacer, InteractiveFunctionCallReplacer
+
+
+
+def _unparse_preserving_format(source: str, replacer: FunctionCallReplacer) -> str:
+    """Convert AST back to source code while preserving formatting.
+    
+    This function uses the list of replaced nodes from the replacer to apply
+    only those specific changes to the original source code.
+    """
+    if not replacer.replaced_nodes:
+        # No replacements were made
+        return source
+    
+    # Process replacements
+    replacements = []
+    lines = source.splitlines(keepends=True)
+    
+    for old_node, new_node in replacer.replaced_nodes:
+        # Get position information
+        if hasattr(old_node, 'lineno') and hasattr(old_node, 'col_offset'):
+            # Calculate byte offsets
+            start_line = old_node.lineno - 1
+            start_offset = sum(len(lines[i]) for i in range(start_line))
+            start_offset += old_node.col_offset
+            
+            # Calculate end offset
+            if hasattr(old_node, 'end_lineno') and hasattr(old_node, 'end_col_offset'):
+                end_line = old_node.end_lineno - 1
+                end_offset = sum(len(lines[i]) for i in range(end_line))
+                end_offset += old_node.end_col_offset
+            else:
+                # Use ast.get_source_segment to get the exact text
+                segment = ast.get_source_segment(source, old_node)
+                if segment:
+                    end_offset = start_offset + len(segment)
+                else:
+                    continue
+            
+            # Get replacement text
+            replacement_text = ast.unparse(new_node)
+            replacements.append((start_offset, end_offset, replacement_text))
+    
+    # Sort replacements by position (in reverse order to avoid offset shifts)
+    replacements.sort(key=lambda x: x[0], reverse=True)
+    
+    # Apply replacements
+    result = source
+    for start_offset, end_offset, replacement_text in replacements:
+        result = result[:start_offset] + replacement_text + result[end_offset:]
+    
+    return result
 
 
 def migrate_source(
@@ -140,8 +191,8 @@ def migrate_source(
         replacer = FunctionCallReplacer(collector.replacements)
     new_tree = replacer.visit(tree)
 
-    # Convert back to source code
-    return ast.unparse(new_tree)
+    # Convert back to source code preserving formatting
+    return _unparse_preserving_format(source, replacer)
 
 
 def migrate_file(filepath: str, write: bool = False) -> str:

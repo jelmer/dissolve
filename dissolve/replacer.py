@@ -36,10 +36,12 @@ class FunctionCallReplacer(ast.NodeTransformer):
 
     Attributes:
         replacements: Mapping from function names to their replacement info.
+        replaced_nodes: List of (old_node, new_node) tuples for nodes that were replaced.
     """
 
     def __init__(self, replacements: dict[str, ReplaceInfo]) -> None:
         self.replacements = replacements
+        self.replaced_nodes = []
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
         """Visit Call nodes and replace deprecated function calls."""
@@ -48,7 +50,10 @@ class FunctionCallReplacer(ast.NodeTransformer):
         func_name = self._get_function_name(node)
         if func_name and func_name in self.replacements:
             replacement = self.replacements[func_name]
-            return self._create_replacement_node(node, replacement)
+            new_node = self._create_replacement_node(node, replacement)
+            if new_node is not node:
+                self.replaced_nodes.append((node, new_node))
+            return new_node
         return node
 
     def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
@@ -60,7 +65,10 @@ class FunctionCallReplacer(ast.NodeTransformer):
             replacement = self.replacements[node.attr]
             # Only replace if this is marked as a property (not a method)
             if replacement.is_property:
-                return self._create_property_replacement_node(node, replacement)
+                new_node = self._create_property_replacement_node(node, replacement)
+                if new_node is not node:
+                    self.replaced_nodes.append((node, new_node))
+                return new_node
         return node
 
     def _get_function_name(self, node: ast.Call) -> Union[str, None]:
@@ -218,6 +226,7 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
         # Always use our wrapper that has access to context
         self.prompt_func = self._context_aware_prompt
         self._processing_call = False
+        # Note: self.replaced_nodes is inherited from parent class
 
     def _context_aware_prompt(
         self, old_call: str, new_call: str
@@ -342,6 +351,7 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
 
             # Check if we should replace
             if self.replace_all:
+                self.replaced_nodes.append((node, replacement_node))
                 return replacement_node
 
             # Store current node for context in prompt
@@ -354,9 +364,11 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
             self._current_node = None
 
             if response == "y":
+                self.replaced_nodes.append((node, replacement_node))
                 return replacement_node
             elif response == "a":
                 self.replace_all = True
+                self.replaced_nodes.append((node, replacement_node))
                 return replacement_node
             elif response == "q":
                 self.quit = True
@@ -392,6 +404,7 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
 
                 # Check if we should replace
                 if self.replace_all:
+                    self.replaced_nodes.append((node, replacement_node))
                     return replacement_node
 
                 # Store current node for context in prompt
@@ -404,9 +417,11 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
                 self._current_node = None
 
                 if response == "y":
+                    self.replaced_nodes.append((node, replacement_node))
                     return replacement_node
                 elif response == "a":
                     self.replace_all = True
+                    self.replaced_nodes.append((node, replacement_node))
                     return replacement_node
                 elif response == "q":
                     self.quit = True
