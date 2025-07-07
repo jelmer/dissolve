@@ -32,11 +32,24 @@ class ReplaceInfo:
         old_name: The name of the deprecated function.
         replacement_expr: The replacement expression template with parameter
             placeholders in the format {param_name}.
+        is_property: Whether this is a property (attribute access) or a callable.
+        is_classmethod: Whether this is a class method.
+        is_staticmethod: Whether this is a static method.
     """
 
-    def __init__(self, old_name: str, replacement_expr: str) -> None:
+    def __init__(
+        self,
+        old_name: str,
+        replacement_expr: str,
+        is_property: bool = False,
+        is_classmethod: bool = False,
+        is_staticmethod: bool = False,
+    ) -> None:
         self.old_name = old_name
         self.replacement_expr = replacement_expr
+        self.is_property = is_property
+        self.is_classmethod = is_classmethod
+        self.is_staticmethod = is_staticmethod
 
 
 class UnreplaceableNode:
@@ -98,9 +111,17 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
         self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]
     ) -> None:
         """Process any decorated node (function or property) to find @replace_me decorators."""
-        # Check if this is a property getter
+        # Check decorator types
         is_property = any(
             isinstance(d, ast.Name) and d.id == "property" for d in node.decorator_list
+        )
+        is_classmethod = any(
+            isinstance(d, ast.Name) and d.id == "classmethod"
+            for d in node.decorator_list
+        )
+        is_staticmethod = any(
+            isinstance(d, ast.Name) and d.id == "staticmethod"
+            for d in node.decorator_list
         )
 
         for decorator in node.decorator_list:
@@ -114,16 +135,14 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
                         node.name, e.failure_reason, e.details or "No details provided"
                     )
                 else:
-                    # For properties, we need to handle them as attribute access
-                    if is_property:
-                        # Property access is obj.property_name, no parentheses
-                        self.replacements[node.name] = ReplaceInfo(
-                            node.name, replacement_expr
-                        )
-                    else:
-                        self.replacements[node.name] = ReplaceInfo(
-                            node.name, replacement_expr
-                        )
+                    # Create ReplaceInfo with appropriate flags
+                    self.replacements[node.name] = ReplaceInfo(
+                        node.name,
+                        replacement_expr,
+                        is_property=is_property,
+                        is_classmethod=is_classmethod,
+                        is_staticmethod=is_staticmethod,
+                    )
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         """Collect import information for module resolution."""
@@ -182,9 +201,14 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
         # Create a template with parameter placeholders
         replacement_expr = ast.unparse(stmt.value)
 
-        # Replace parameter names with placeholders
+        # Replace parameter names with placeholders using word boundaries
+        import re
+
         for arg in func_def.args.args:
             param_name = arg.arg
-            replacement_expr = replacement_expr.replace(param_name, f"{{{param_name}}}")
+            # Use word boundary regex to avoid replacing parts of other identifiers
+            replacement_expr = re.sub(
+                rf"\b{re.escape(param_name)}\b", f"{{{param_name}}}", replacement_expr
+            )
 
         return replacement_expr
