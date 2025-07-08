@@ -178,8 +178,10 @@ result = obj.old_method(10)
         result = migrate_source(source.strip())
         assert "result = obj.new_method(10 * 2)" in result
         # Make sure we don't have the broken pattern (excluding comments)
-        code_lines = [line for line in result.split('\n') if not line.strip().startswith('#')]
-        code_text = '\n'.join(code_lines)
+        code_lines = [
+            line for line in result.split("\n") if not line.strip().startswith("#")
+        ]
+        code_text = "\n".join(code_lines)
         assert "obj.new_method({x} * 2)(10)" not in code_text
         assert "obj.new_method(x * 2)(10)" not in code_text
 
@@ -197,8 +199,10 @@ result = await old_async_func(10)
         result = migrate_source(source.strip())
         # The await is part of the replacement expression
         # Note: This creates double await which is a limitation
-        assert ("result = await (await new_async_func(10 + 1))" in result or
-                "result = await await new_async_func(10 + 1)" in result)
+        assert (
+            "result = await (await new_async_func(10 + 1))" in result
+            or "result = await await new_async_func(10 + 1)" in result
+        )
 
     def test_async_method_replacement(self):
         """Test async method replacement."""
@@ -216,8 +220,10 @@ result = await obj.old_async_method(10)
         result = migrate_source(source.strip())
         # The await is part of the replacement expression
         # Note: This creates double await which is a limitation
-        assert ("result = await (await obj.new_async_method(10 * 2))" in result or
-                "result = await await obj.new_async_method(10 * 2)" in result)
+        assert (
+            "result = await (await obj.new_async_method(10 * 2))" in result
+            or "result = await await obj.new_async_method(10 * 2)" in result
+        )
 
     def test_property_getter_and_setter(self):
         """Test that property getter is replaced correctly."""
@@ -427,8 +433,10 @@ result = old_func("test", "_value")
 """
         result = migrate_source(source.strip())
         # Check for either quote style
-        assert ('result = new_func("test" + "_value")' in result or
-                "result = new_func('test' + '_value')" in result)
+        assert (
+            'result = new_func("test" + "_value")' in result
+            or "result = new_func('test' + '_value')" in result
+        )
 
     def test_complex_expression_replacement(self):
         """Test replacement of complex expressions."""
@@ -489,10 +497,14 @@ message = f"Call old_func with value"
 """
         result = migrate_source(source.strip())
         # Check for either quote style
-        assert ('result = f"Value: {new_func(10)}"' in result or
-                "result = f'Value: {new_func(10)}'" in result)
-        assert ('message = f"Call old_func with value"' in result or
-                "message = f'Call old_func with value'" in result)
+        assert (
+            'result = f"Value: {new_func(10)}"' in result
+            or "result = f'Value: {new_func(10)}'" in result
+        )
+        assert (
+            'message = f"Call old_func with value"' in result
+            or "message = f'Call old_func with value'" in result
+        )
 
     def test_multiline_call_replacement(self):
         """Test replacement of multiline function calls."""

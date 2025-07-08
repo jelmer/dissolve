@@ -174,25 +174,49 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
                 "Function has no body",
             )
 
-        if len(func_def.body) != 1:
+        # Helper to check if a statement is a docstring
+        def is_docstring(stmt, index):
+            return (
+                index == 0
+                and isinstance(stmt, ast.Expr)
+                and isinstance(stmt.value, ast.Constant)
+                and isinstance(stmt.value.value, str)
+            )
+
+        # Find the return statement, skipping docstrings
+        return_stmt = None
+        non_docstring_stmts = [
+            stmt for i, stmt in enumerate(func_def.body) if not is_docstring(stmt, i)
+        ]
+
+        if len(non_docstring_stmts) == 0:
             raise ReplacementExtractionError(
                 func_def.name,
                 ReplacementFailureReason.COMPLEX_BODY,
-                "Function has multiple statements",
+                "Function has no body statements",
+            )
+        elif len(non_docstring_stmts) == 1:
+            stmt = non_docstring_stmts[0]
+            if isinstance(stmt, ast.Return):
+                return_stmt = stmt
+            elif isinstance(stmt, ast.Pass):
+                # Special case: pass statement is valid
+                return "None"
+        else:
+            raise ReplacementExtractionError(
+                func_def.name,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Function has multiple statements (excluding docstring)",
             )
 
-        stmt = func_def.body[0]
-        if not isinstance(stmt, ast.Return):
-            # Special case: pass statement is valid but not extractable
-            if isinstance(stmt, ast.Pass):
-                return "None"
+        if not return_stmt:
             raise ReplacementExtractionError(
                 func_def.name,
                 ReplacementFailureReason.COMPLEX_BODY,
                 "Function does not have a return statement",
             )
 
-        if not stmt.value:
+        if not return_stmt.value:
             raise ReplacementExtractionError(
                 func_def.name,
                 ReplacementFailureReason.COMPLEX_BODY,
@@ -200,7 +224,7 @@ class DeprecatedFunctionCollector(ast.NodeVisitor):
             )
 
         # Create a template with parameter placeholders
-        replacement_expr = ast.unparse(stmt.value)
+        replacement_expr = ast.unparse(return_stmt.value)
 
         # Replace parameter names with placeholders using word boundaries
         for arg in func_def.args.args:

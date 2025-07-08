@@ -45,60 +45,78 @@ Example:
 
 import ast
 import logging
-from typing import Callable, List, Literal, Optional, Tuple, Union
+from typing import Callable, Literal, Optional, Union
 
 from .collector import DeprecatedFunctionCollector
 from .replacer import FunctionCallReplacer, InteractiveFunctionCallReplacer
 
 
+def _calculate_node_offsets(
+    node: ast.AST, source: str, lines: list[str]
+) -> Optional[tuple[int, int]]:
+    """Calculate byte offsets for an AST node.
+
+    Args:
+        node: The AST node to calculate offsets for
+        source: The full source code string
+        lines: Source lines with line endings preserved
+
+    Returns:
+        Tuple of (start_offset, end_offset) or None if offsets cannot be determined
+    """
+    if not (hasattr(node, "lineno") and hasattr(node, "col_offset")):
+        return None
+
+    # Calculate start byte offset
+    start_line = node.lineno - 1
+    start_offset = sum(len(lines[i]) for i in range(start_line))
+    start_offset += node.col_offset
+
+    # Calculate end byte offset
+    if hasattr(node, "end_lineno") and hasattr(node, "end_col_offset"):
+        end_line = node.end_lineno - 1
+        end_offset = sum(len(lines[i]) for i in range(end_line))
+        end_offset += node.end_col_offset
+    else:
+        # Use ast.get_source_segment to get the exact text
+        segment = ast.get_source_segment(source, node)
+        if segment:
+            end_offset = start_offset + len(segment)
+        else:
+            return None
+
+    return start_offset, end_offset
+
 
 def _unparse_preserving_format(source: str, replacer: FunctionCallReplacer) -> str:
     """Convert AST back to source code while preserving formatting.
-    
+
     This function uses the list of replaced nodes from the replacer to apply
     only those specific changes to the original source code.
     """
     if not replacer.replaced_nodes:
         # No replacements were made
         return source
-    
+
     # Process replacements
     replacements = []
     lines = source.splitlines(keepends=True)
-    
+
     for old_node, new_node in replacer.replaced_nodes:
-        # Get position information
-        if hasattr(old_node, 'lineno') and hasattr(old_node, 'col_offset'):
-            # Calculate byte offsets
-            start_line = old_node.lineno - 1
-            start_offset = sum(len(lines[i]) for i in range(start_line))
-            start_offset += old_node.col_offset
-            
-            # Calculate end offset
-            if hasattr(old_node, 'end_lineno') and hasattr(old_node, 'end_col_offset'):
-                end_line = old_node.end_lineno - 1
-                end_offset = sum(len(lines[i]) for i in range(end_line))
-                end_offset += old_node.end_col_offset
-            else:
-                # Use ast.get_source_segment to get the exact text
-                segment = ast.get_source_segment(source, old_node)
-                if segment:
-                    end_offset = start_offset + len(segment)
-                else:
-                    continue
-            
-            # Get replacement text
+        offsets = _calculate_node_offsets(old_node, source, lines)
+        if offsets:
+            start_offset, end_offset = offsets
             replacement_text = ast.unparse(new_node)
             replacements.append((start_offset, end_offset, replacement_text))
-    
+
     # Sort replacements by position (in reverse order to avoid offset shifts)
     replacements.sort(key=lambda x: x[0], reverse=True)
-    
+
     # Apply replacements
     result = source
     for start_offset, end_offset, replacement_text in replacements:
         result = result[:start_offset] + replacement_text + result[end_offset:]
-    
+
     return result
 
 
@@ -189,7 +207,7 @@ def migrate_source(
         )
     else:
         replacer = FunctionCallReplacer(collector.replacements)
-    new_tree = replacer.visit(tree)
+    replacer.visit(tree)
 
     # Convert back to source code preserving formatting
     return _unparse_preserving_format(source, replacer)
@@ -222,6 +240,39 @@ def migrate_file(filepath: str, write: bool = False) -> str:
             f.write(new_source)
 
     return new_source
+
+
+def create_local_module_resolver(
+    base_dir: str,
+) -> Callable[[str, Optional[str]], Optional[str]]:
+    """Create a module resolver for local Python files.
+
+    Args:
+        base_dir: The base directory to search for modules in
+
+    Returns:
+        A module resolver function that can load Python modules from the filesystem
+    """
+    import os
+
+    def local_module_resolver(module_name: str, _: Optional[str]) -> Optional[str]:
+        module_path = module_name.replace(".", "/")
+        potential_paths = [
+            os.path.join(base_dir, f"{module_path}.py"),
+            os.path.join(base_dir, module_path, "__init__.py"),
+        ]
+
+        for path in potential_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path) as f:
+                        return f.read()
+                except BaseException as e:
+                    logging.warning('Failed to read module "%s", ignoring: %s', path, e)
+                    continue
+        return None
+
+    return local_module_resolver
 
 
 def migrate_file_with_imports(
@@ -272,28 +323,11 @@ def migrate_file_with_imports(
         source = f.read()
 
     file_dir = os.path.dirname(os.path.abspath(filepath))
-
-    # Create a module resolver for local files
-    def local_module_resolver(module_name: str, _: Optional[str]) -> Optional[str]:
-        module_path = module_name.replace(".", "/")
-        potential_paths = [
-            os.path.join(file_dir, f"{module_path}.py"),
-            os.path.join(file_dir, module_path, "__init__.py"),
-        ]
-
-        for path in potential_paths:
-            if os.path.exists(path):
-                try:
-                    with open(path) as f:
-                        return f.read()
-                except BaseException as e:
-                    logging.warning('Failed to read module "%s", ignoring: %s', path, e)
-                    continue
-        return None
+    module_resolver = create_local_module_resolver(file_dir)
 
     new_source = migrate_source(
         source,
-        module_resolver=local_module_resolver,
+        module_resolver=module_resolver,
         interactive=interactive,
         prompt_func=prompt_func,
     )

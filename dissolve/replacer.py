@@ -21,7 +21,7 @@ with their suggested alternatives in Python AST nodes.
 import ast
 import difflib
 import re
-from typing import Callable, Literal, Union
+from typing import Callable, Literal, Optional, Union
 
 from .ast_utils import substitute_parameters
 from .collector import ReplaceInfo
@@ -41,7 +41,7 @@ class FunctionCallReplacer(ast.NodeTransformer):
 
     def __init__(self, replacements: dict[str, ReplaceInfo]) -> None:
         self.replacements = replacements
-        self.replaced_nodes = []
+        self.replaced_nodes: list[tuple[ast.AST, ast.AST]] = []
 
     def visit_Call(self, node: ast.Call) -> ast.AST:
         """Visit Call nodes and replace deprecated function calls."""
@@ -81,6 +81,51 @@ class FunctionCallReplacer(ast.NodeTransformer):
             return node.func.attr
         return None
 
+    def _prepare_replacement_expression(
+        self,
+        replacement_expr: str,
+        param_map: dict[str, ast.expr],
+        obj_value: Optional[ast.expr] = None,
+        is_classmethod: bool = False,
+        is_staticmethod: bool = False,
+    ) -> str:
+        """Prepare a replacement expression by handling parameter placeholders.
+
+        Args:
+            replacement_expr: The expression template with {param} placeholders
+            param_map: Map of parameter names to their AST values (will be modified)
+            obj_value: The object value for method calls (self/cls)
+            is_classmethod: Whether this is a class method
+            is_staticmethod: Whether this is a static method
+
+        Returns:
+            The prepared expression with placeholders replaced
+        """
+        temp_expr = replacement_expr
+
+        # Extract all parameter placeholders
+        params = re.findall(r"\{(\w+)\}", replacement_expr)
+
+        # Handle special parameters for method calls
+        if obj_value is not None:
+            special_param = None
+            if is_classmethod and "cls" in params:
+                special_param = ("cls", "__cls_placeholder__")
+            elif not is_staticmethod and "self" in params:
+                special_param = ("self", "__self_placeholder__")
+
+            if special_param:
+                old_name, new_name = special_param
+                temp_expr = temp_expr.replace(f"{{{old_name}}}", new_name)
+                param_map[new_name] = obj_value
+                params.remove(old_name)
+
+        # Replace remaining parameter placeholders
+        for param in params:
+            temp_expr = temp_expr.replace(f"{{{param}}}", param)
+
+        return temp_expr
+
     def _create_replacement_node(
         self, original_call: ast.Call, replacement: ReplaceInfo
     ) -> ast.AST:
@@ -97,31 +142,19 @@ class FunctionCallReplacer(ast.NodeTransformer):
         # Build a mapping of parameter names to their AST values
         param_map = self._build_param_map(original_call, replacement)
 
-        # Prepare the expression by replacing placeholders with valid identifiers
-        temp_expr = replacement.replacement_expr
-        
-        # Extract all parameter placeholders
-        param_pattern = re.compile(r"\{(\w+)\}")
-        params = param_pattern.findall(replacement.replacement_expr)
-        
-        # Handle special parameters based on call type
-        if isinstance(original_call.func, ast.Attribute):
-            # Handle self/cls for method calls
-            special_param = None
-            if replacement.is_classmethod and "cls" in params:
-                special_param = ("cls", "__cls_placeholder__")
-            elif not replacement.is_staticmethod and "self" in params:
-                special_param = ("self", "__self_placeholder__")
-            
-            if special_param:
-                old_name, new_name = special_param
-                temp_expr = temp_expr.replace(f"{{{old_name}}}", new_name)
-                param_map[new_name] = original_call.func.value
-                params.remove(old_name)
-        
-        # Replace remaining parameter placeholders
-        for param in params:
-            temp_expr = temp_expr.replace(f"{{{param}}}", param)
+        # Prepare the expression by handling placeholders
+        obj_value = (
+            original_call.func.value
+            if isinstance(original_call.func, ast.Attribute)
+            else None
+        )
+        temp_expr = self._prepare_replacement_expression(
+            replacement.replacement_expr,
+            param_map,
+            obj_value=obj_value,
+            is_classmethod=replacement.is_classmethod,
+            is_staticmethod=replacement.is_staticmethod,
+        )
 
         try:
             # Parse and substitute parameters
@@ -131,6 +164,38 @@ class FunctionCallReplacer(ast.NodeTransformer):
             return result
         except SyntaxError:
             return original_call
+
+    def _extract_parameter_names(
+        self,
+        replacement_expr: str,
+        is_method_call: bool,
+        is_classmethod: bool,
+        is_staticmethod: bool,
+    ) -> list[str]:
+        """Extract parameter names from replacement expression.
+
+        Args:
+            replacement_expr: The expression template with {param} placeholders
+            is_method_call: Whether this is a method call
+            is_classmethod: Whether this is a class method
+            is_staticmethod: Whether this is a static method
+
+        Returns:
+            List of parameter names (excluding special self/cls parameters)
+        """
+        # Extract all parameter names
+        param_names = re.findall(r"\{(\w+)\}", replacement_expr)
+
+        # Filter out special parameters for method calls
+        if is_method_call:
+            special_params = []
+            if is_classmethod:
+                special_params.append("cls")
+            elif not is_staticmethod:
+                special_params.append("self")
+            param_names = [p for p in param_names if p not in special_params]
+
+        return param_names
 
     def _build_param_map(
         self, call: ast.Call, replacement: ReplaceInfo
@@ -144,21 +209,18 @@ class FunctionCallReplacer(ast.NodeTransformer):
         Returns:
             Dictionary mapping parameter names to their AST representations.
         """
-        # Extract parameter names from replacement expression
-        param_names = re.findall(r"\{(\w+)\}", replacement.replacement_expr)
-        
-        # Filter out special parameters for method calls
-        if isinstance(call.func, ast.Attribute):
-            special_params = []
-            if replacement.is_classmethod:
-                special_params.append("cls")
-            elif not replacement.is_staticmethod:
-                special_params.append("self")
-            param_names = [p for p in param_names if p not in special_params]
+        # Extract parameter names, filtering special ones
+        is_method_call = isinstance(call.func, ast.Attribute)
+        param_names = self._extract_parameter_names(
+            replacement.replacement_expr,
+            is_method_call,
+            replacement.is_classmethod,
+            replacement.is_staticmethod,
+        )
 
         # Build parameter map from positional and keyword arguments
         param_map = {}
-        
+
         # Map positional arguments
         for param_name, arg in zip(param_names, call.args):
             param_map[param_name] = arg
@@ -183,13 +245,20 @@ class FunctionCallReplacer(ast.NodeTransformer):
             AST node representing the replacement expression with the object
             reference substituted.
         """
-        # Replace {self} placeholder with a temporary identifier
-        temp_expr = replacement.replacement_expr.replace("{self}", "self")
+        # For properties, we just need to substitute {self} with the object
+        param_map: dict[str, ast.expr] = {}
+        temp_expr = self._prepare_replacement_expression(
+            replacement.replacement_expr,
+            param_map,
+            obj_value=original_attr.value,
+            is_classmethod=False,
+            is_staticmethod=False,
+        )
 
         try:
-            # Parse and substitute self with the actual object
+            # Parse and substitute parameters
             replacement_ast = ast.parse(temp_expr, mode="eval").body
-            result = substitute_parameters(replacement_ast, {"self": original_attr.value})
+            result = substitute_parameters(replacement_ast, param_map)
             ast.copy_location(result, original_attr)
             return result
         except SyntaxError:
