@@ -44,7 +44,7 @@ Basic Usage:
 See the documentation for more detailed examples and advanced usage.
 """
 
-__version__: tuple[int, int, int] = (0, 2, 0)
+__version__: tuple[int, int, int] = (0, 2, 1)
 
 
 __all__ = ["replace_me"]
