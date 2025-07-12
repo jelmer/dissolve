@@ -231,18 +231,46 @@ Supported objects
 The `replace_me` decorator can currently be applied to:
 
 - Functions
+- Async functions
 - Methods
 - Properties
 
 In the future, support for other types of objects may be added:
 
 - Classes (see https://github.com/jelmer/dissolve/issues/33)
-- Async functions (see https://github.com/jelmer/dissolve/issues/34)
 
 Dissolve will automatically determine the appropriate replacement expression
 based on the body of the decorated object. In some cases, this is not possible,
 such as when the body is a complex expression or when the object is a lambda
 function.
+
+Async Function Deprecation
+--------------------------
+
+Async functions are fully supported and work just like regular functions:
+
+.. code-block:: python
+
+   from dissolve import replace_me
+   import asyncio
+
+   async def new_fetch_data(url, timeout=30):
+       # Modern implementation
+       return await fetch_with_timeout(url, timeout)
+
+   @replace_me(since="3.0.0")
+   async def old_fetch_data(url):
+       return await new_fetch_data(url, timeout=30)
+
+When called, this will emit:
+
+.. code-block:: console
+
+   >>> await old_fetch_data("https://api.example.com")
+   <stdin>:1: DeprecationWarning: <function old_fetch_data at 0x...> has been deprecated since 3.0.0; use 'await new_fetch_data('https://api.example.com', timeout=30)' instead
+
+The replacement expression correctly preserves the ``await`` keyword for async calls.
+
 
 Optional Dependency Usage
 =========================
