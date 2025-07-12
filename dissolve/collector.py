@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Collection functionality for @replace_me decorated functions.
+"""Collection functionality for @replace_me decorated functions and attributes.
 
 This module provides tools to collect and analyze functions decorated with
-@replace_me, extracting replacement expressions and import information.
+@replace_me and attributes marked with replace_me(value), extracting 
+replacement expressions and import information.
 """
 
 import re
@@ -36,6 +37,8 @@ class ConstructType(Enum):
     STATICMETHOD = "staticmethod"
     ASYNC_FUNCTION = "async_function"
     CLASS = "class"
+    CLASS_ATTRIBUTE = "class_attribute"
+    MODULE_ATTRIBUTE = "module_attribute"
 
 
 class ReplaceInfo:
@@ -87,6 +90,8 @@ class UnreplaceableNode:
             ConstructType.STATICMETHOD: "Static method",
             ConstructType.ASYNC_FUNCTION: "Async function",
             ConstructType.FUNCTION: "Function",
+            ConstructType.CLASS_ATTRIBUTE: "Class attribute",
+            ConstructType.MODULE_ATTRIBUTE: "Module attribute",
         }
         return type_map[self.construct_type]
 
@@ -124,6 +129,8 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
         self.imports: list[ImportInfo] = []
         self._current_decorators: list[cst.Decorator] = []
         self._current_class_decorators: list[cst.Decorator] = []
+        self._inside_class: bool = False
+        self._current_class_name: Optional[str] = None
 
     def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
         """Store decorators for processing when we leave the function."""
@@ -163,6 +170,8 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
     def visit_ClassDef(self, node: cst.ClassDef) -> None:
         """Store decorators for processing when we leave the class."""
         self._current_class_decorators = list(node.decorators)
+        self._inside_class = True
+        self._current_class_name = node.name.value
 
     def leave_ClassDef(self, original_node: cst.ClassDef) -> None:
         """Process class definitions to find @replace_me decorators."""
@@ -189,6 +198,8 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
                 )
 
         self._current_class_decorators = []
+        self._inside_class = False
+        self._current_class_name = None
 
     def _determine_construct_type(
         self, node: cst.FunctionDef, decorators: list[cst.Decorator]
@@ -233,6 +244,15 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
 
         if names:
             self.imports.append(ImportInfo(module_name, names))
+
+    def visit_SimpleStatementLine(self, node: cst.SimpleStatementLine) -> None:
+        """Process simple statements to find replace_me() decorated attributes."""
+        # Look for assignments with replace_me() call
+        for stmt in node.body:
+            if isinstance(stmt, (cst.Assign, cst.AnnAssign)):
+                # Check if the value is a replace_me() call
+                if self._is_replace_me_call(stmt):
+                    self._process_replace_me_attribute(stmt, node)
 
     def _is_decorator_named(self, decorator: cst.Decorator, name: str) -> bool:
         """Check if decorator has the given name."""
@@ -510,3 +530,95 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
                     expr.value, (cst.SimpleString, cst.ConcatenatedString)
                 )
         return False
+
+    def _extract_replacement_from_value(self, value: cst.BaseExpression) -> str:
+        """Extract replacement expression from an attribute value.
+
+        Args:
+            value: The value expression of the assignment.
+
+        Returns:
+            The replacement expression as a string.
+
+        Raises:
+            ReplacementExtractionError: If the value is too complex.
+        """
+        # For attributes, we simply use the value expression as the replacement
+        # This works for simple values like strings, numbers, other attributes, etc.
+        replacement_expr = cst.Module([]).code_for_node(value)
+        return replacement_expr
+
+    def _is_replace_me_call(self, stmt: Union[cst.Assign, cst.AnnAssign]) -> bool:
+        """Check if an assignment's value is a replace_me() call."""
+        if isinstance(stmt, cst.Assign):
+            value = stmt.value
+        else:  # AnnAssign
+            if stmt.value is None:
+                return False
+            value = stmt.value
+
+        # Check if value is a Call node
+        if not isinstance(value, cst.Call):
+            return False
+
+        # Check if the function being called is 'replace_me'
+        func = value.func
+        if isinstance(func, cst.Name):
+            return func.value == "replace_me"
+        elif isinstance(func, cst.Attribute):
+            return func.attr.value == "replace_me"
+
+        return False
+
+    def _process_replace_me_attribute(
+        self, stmt: Union[cst.Assign, cst.AnnAssign], node: cst.SimpleStatementLine
+    ) -> None:
+        """Process an attribute assignment using replace_me(value) pattern."""
+        # Get target and value
+        if isinstance(stmt, cst.Assign):
+            if not stmt.targets:
+                return
+            target = stmt.targets[0].target
+            value = stmt.value
+        else:  # AnnAssign
+            target = stmt.target
+            if stmt.value is None:
+                return
+            value = stmt.value
+
+        # Get the attribute name
+        if isinstance(target, cst.Name):
+            attr_name = target.value
+        else:
+            # Complex target (e.g., obj.attr), not supported yet
+            return
+
+        # Determine if it's a class or module attribute
+        if self._inside_class:
+            construct_type = ConstructType.CLASS_ATTRIBUTE
+            full_name = f"{self._current_class_name}.{attr_name}"
+        else:
+            construct_type = ConstructType.MODULE_ATTRIBUTE
+            full_name = attr_name
+
+        # Extract the replacement value from the replace_me() call
+        if isinstance(value, cst.Call) and value.args:
+            # Get the first argument to replace_me()
+            first_arg = value.args[0]
+            if isinstance(first_arg, cst.Arg) and first_arg.value:
+                try:
+                    replacement_expr = self._extract_replacement_from_value(
+                        first_arg.value
+                    )
+                    self.replacements[full_name] = ReplaceInfo(
+                        full_name,
+                        replacement_expr,
+                        construct_type=construct_type,
+                    )
+                except ReplacementExtractionError as e:
+                    self.unreplaceable[full_name] = UnreplaceableNode(
+                        full_name,
+                        e.failure_reason,
+                        e.details or "No details provided",
+                        construct_type=construct_type,
+                    )

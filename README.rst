@@ -237,6 +237,7 @@ The `replace_me` decorator can currently be applied to:
 - Static methods (``@staticmethod``)
 - Properties (``@property``)
 - Classes
+- Module and class attributes (using ``replace_me(value)``)
 
 Class Deprecation
 -----------------
@@ -296,6 +297,38 @@ Dissolve will automatically determine the appropriate replacement expression
 based on the body of the decorated object. In some cases, this is not possible,
 such as when the body is a complex expression or when the object is a lambda
 function.
+
+Attribute Deprecation
+---------------------
+
+Module-level constants and class attributes can be deprecated using ``replace_me`` as a function that wraps the value:
+
+.. code-block:: python
+
+   from dissolve import replace_me
+
+   # Module-level attribute
+   OLD_API_URL = replace_me("https://api.example.com/v2")
+   
+   # Class attribute
+   class Config:
+       OLD_TIMEOUT = replace_me(30)
+       OLD_DEBUG_MODE = replace_me(True)
+
+When these attributes are used in code, the migration tool will replace them with the literal values:
+
+.. code-block:: console
+
+   $ dissolve migrate --write myproject.py
+   # Before:
+   # url = OLD_API_URL
+   # timeout = Config.OLD_TIMEOUT
+   
+   # After:
+   # url = "https://api.example.com/v2"
+   # timeout = 30
+
+This is particularly useful for deprecating configuration constants that have been replaced by new values or moved to different locations. The ``replace_me()`` function call serves as a marker for the migration tool without adding any runtime overhead.
 
 Async Function Deprecation
 --------------------------
