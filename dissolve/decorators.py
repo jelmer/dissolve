@@ -201,8 +201,20 @@ def replace_me(
                     )
             warnings.warn(w, stacklevel=3)
 
+        # Check if the callable is a class
+        if inspect.isclass(callable):
+            # For wrapper classes, we'll add a deprecation warning to __init__
+            original_init = callable.__init__
+
+            def deprecated_init(self, *args, **kwargs):
+                emit_warning(callable, args, kwargs)
+                return original_init(self, *args, **kwargs)
+
+            callable.__init__ = deprecated_init
+            return callable  # type: ignore[return-value]
+
         # Check if the callable is an async function
-        if inspect.iscoroutinefunction(callable):
+        elif inspect.iscoroutinefunction(callable):
 
             async def async_decorated_function(*args: Any, **kwargs: Any) -> Any:
                 emit_warning(callable, args, kwargs)

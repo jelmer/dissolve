@@ -27,16 +27,17 @@ from .types import ReplacementExtractionError, ReplacementFailureReason
 
 
 class ReplaceInfo:
-    """Information about a function that should be replaced.
+    """Information about a function or class that should be replaced.
 
     Attributes:
-        old_name: The name of the deprecated function.
+        old_name: The name of the deprecated function or class.
         replacement_expr: The replacement expression template with parameter
             placeholders in the format {param_name}.
         is_property: Whether this is a property (attribute access) or a callable.
         is_classmethod: Whether this is a class method.
         is_staticmethod: Whether this is a static method.
         is_async: Whether this is an async function.
+        is_class: Whether this is a class (wrapper-based deprecation).
     """
 
     def __init__(
@@ -47,6 +48,7 @@ class ReplaceInfo:
         is_classmethod: bool = False,
         is_staticmethod: bool = False,
         is_async: bool = False,
+        is_class: bool = False,
     ) -> None:
         self.old_name = old_name
         self.replacement_expr = replacement_expr
@@ -54,6 +56,7 @@ class ReplaceInfo:
         self.is_classmethod = is_classmethod
         self.is_staticmethod = is_staticmethod
         self.is_async = is_async
+        self.is_class = is_class
 
 
 class UnreplaceableNode:
@@ -103,6 +106,7 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
         self.unreplaceable: dict[str, UnreplaceableNode] = {}
         self.imports: list[ImportInfo] = []
         self._current_decorators: list[cst.Decorator] = []
+        self._current_class_decorators: list[cst.Decorator] = []
 
     def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
         """Store decorators for processing when we leave the function."""
@@ -152,6 +156,33 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
                 )
 
         self._current_decorators = []
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> None:
+        """Store decorators for processing when we leave the class."""
+        self._current_class_decorators = list(node.decorators)
+
+    def leave_ClassDef(self, original_node: cst.ClassDef) -> None:
+        """Process class definitions to find @replace_me decorators."""
+        # Check for @replace_me
+        has_replace_me = any(
+            self._is_replace_me_decorator(d) for d in self._current_class_decorators
+        )
+
+        if has_replace_me:
+            class_name = original_node.name.value
+            try:
+                replacement_expr = self._extract_replacement_from_class(original_node)
+                self.replacements[class_name] = ReplaceInfo(
+                    class_name,
+                    replacement_expr,
+                    is_class=True,
+                )
+            except ReplacementExtractionError as e:
+                self.unreplaceable[class_name] = UnreplaceableNode(
+                    class_name, e.failure_reason, e.details or "No details provided"
+                )
+
+        self._current_class_decorators = []
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> None:
         """Collect import information for module resolution."""
@@ -320,6 +351,130 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
             ReplacementFailureReason.COMPLEX_BODY,
             "Function does not have a return statement",
         )
+
+    def _extract_replacement_from_class(self, class_def: cst.ClassDef) -> str:
+        """Extract replacement expression from class __init__ method wrapper pattern.
+
+        Args:
+            class_def: The class definition CST node.
+
+        Returns:
+            The replacement expression with parameter placeholders
+
+        Raises:
+            ReplacementExtractionError: If no valid replacement can be extracted
+        """
+        if not class_def.body:
+            raise ReplacementExtractionError(
+                class_def.name.value,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Class has no body",
+            )
+
+        # Handle single-line classes vs multi-line
+        if isinstance(class_def.body, cst.SimpleStatementSuite):
+            body_stmts = list(class_def.body.body)  # type: ignore[arg-type]
+        elif isinstance(class_def.body, cst.IndentedBlock):
+            body_stmts = list(class_def.body.body)  # type: ignore[arg-type]
+        else:
+            raise ReplacementExtractionError(
+                class_def.name.value,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Unexpected body type",
+            )
+
+        # Look for __init__ method
+        init_method = None
+        for stmt in body_stmts:
+            if isinstance(stmt, cst.SimpleStatementLine):
+                continue  # Skip simple statements
+            elif isinstance(stmt, cst.FunctionDef) and stmt.name.value == "__init__":
+                init_method = stmt
+                break
+
+        if not init_method:
+            raise ReplacementExtractionError(
+                class_def.name.value,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "Class does not have __init__ method for wrapper pattern",
+            )
+
+        # Extract wrapper pattern from __init__ method body
+        if not init_method.body:
+            raise ReplacementExtractionError(
+                class_def.name.value,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "__init__ method has no body",
+            )
+
+        # Handle single-line vs multi-line __init__ method
+        if isinstance(init_method.body, cst.SimpleStatementSuite):
+            body_stmts = list(init_method.body.body)  # type: ignore[arg-type]
+        elif isinstance(init_method.body, cst.IndentedBlock):
+            body_stmts = list(init_method.body.body)  # type: ignore[arg-type]
+            # Skip docstring if present
+            if body_stmts and self._is_docstring(body_stmts[0]):
+                body_stmts = body_stmts[1:]
+        else:
+            raise ReplacementExtractionError(
+                class_def.name.value,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "__init__ method has unexpected body type",
+            )
+
+        if not body_stmts:
+            raise ReplacementExtractionError(
+                class_def.name.value,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "__init__ method has no body statements",
+            )
+
+        # Look for wrapper assignment pattern: self._attr = TargetClass(args)
+        wrapper_assignment = None
+        for stmt in body_stmts:
+            if isinstance(stmt, cst.SimpleStatementLine):
+                for simple_stmt in stmt.body:
+                    if isinstance(simple_stmt, cst.Assign):
+                        # Check if this is self._something = SomeClass(...)
+                        if len(simple_stmt.targets) == 1 and isinstance(
+                            simple_stmt.targets[0].target, cst.Attribute
+                        ):
+                            attr_node = simple_stmt.targets[0].target
+                            if (
+                                isinstance(attr_node.value, cst.Name)
+                                and attr_node.value.value == "self"
+                                and isinstance(simple_stmt.value, cst.Call)
+                            ):
+                                wrapper_assignment = simple_stmt
+                                break
+
+                if wrapper_assignment:
+                    break
+
+        if not wrapper_assignment:
+            raise ReplacementExtractionError(
+                class_def.name.value,
+                ReplacementFailureReason.COMPLEX_BODY,
+                "__init__ method does not contain wrapper assignment pattern (self._attr = TargetClass(...))",
+            )
+
+        # Extract the right-hand side (the constructor call)
+        constructor_call = wrapper_assignment.value
+        replacement_expr = cst.Module([]).code_for_node(constructor_call)
+
+        # Replace parameters with placeholders (skip 'self' parameter)
+        if init_method.params and init_method.params.params:
+            for param in init_method.params.params[1:]:  # Skip 'self'
+                if isinstance(param.name, cst.Name):
+                    param_name = param.name.value
+                    # Use word boundary regex to avoid replacing parts of other identifiers
+                    replacement_expr = re.sub(
+                        rf"\b{re.escape(param_name)}\b",
+                        f"{{{param_name}}}",
+                        replacement_expr,
+                    )
+
+        return replacement_expr
 
     def _is_docstring(self, stmt: cst.BaseSmallStatement) -> bool:
         """Check if statement is a docstring."""
