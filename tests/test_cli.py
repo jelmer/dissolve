@@ -193,7 +193,7 @@ def test_migrate_check_write_conflict():
 
         # Should fail with exit code 2
         assert exit_code == 2
-        assert "--check and --write cannot be used together" in error_output
+        assert "not allowed with argument --check" in error_output
     finally:
         os.unlink(temp_path)
 
@@ -352,7 +352,7 @@ def test_cleanup_check_write_conflict():
 
         # Should fail with exit code 2
         assert exit_code == 2
-        assert "--check and --write cannot be used together" in error_output
+        assert "not allowed with argument --check" in error_output
     finally:
         os.unlink(temp_path)
 

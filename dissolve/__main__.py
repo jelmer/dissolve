@@ -297,18 +297,20 @@ def main(argv: Union[list[str], None] = None) -> int:
         action="store_true",
         help="Treat paths as Python module paths (e.g. package.module)",
     )
-    migrate_parser.add_argument(
+    # Create mutually exclusive group for all conflicting options
+    mode_group = migrate_parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "-w",
         "--write",
         action="store_true",
         help="Write changes back to files (default: print to stdout)",
     )
-    migrate_parser.add_argument(
+    mode_group.add_argument(
         "--check",
         action="store_true",
         help="Check if files need migration without modifying them (exit 1 if changes needed)",
     )
-    migrate_parser.add_argument(
+    mode_group.add_argument(
         "--interactive",
         action="store_true",
         help="Interactively confirm each replacement before applying",
@@ -358,7 +360,9 @@ def main(argv: Union[list[str], None] = None) -> int:
         action="store_true",
         help="Treat paths as Python module paths (e.g. package.module)",
     )
-    cleanup_parser.add_argument(
+    # Create mutually exclusive group for conflicting options
+    cleanup_mode_group = cleanup_parser.add_mutually_exclusive_group()
+    cleanup_mode_group.add_argument(
         "-w",
         "--write",
         action="store_true",
@@ -374,7 +378,7 @@ def main(argv: Union[list[str], None] = None) -> int:
         action="store_true",
         help="Remove all functions with @replace_me decorators regardless of version",
     )
-    cleanup_parser.add_argument(
+    cleanup_mode_group.add_argument(
         "--check",
         action="store_true",
         help="Check if files have deprecated functions that can be removed without modifying them (exit 1 if changes needed)",
@@ -390,10 +394,6 @@ def main(argv: Union[list[str], None] = None) -> int:
     if args.command == "migrate":
         if not _check_libcst_available():
             return 1
-        if args.check and args.write:
-            parser.error("--check and --write cannot be used together")
-        if args.interactive and args.check:
-            parser.error("--interactive and --check cannot be used together")
 
         def migrate_processor(filepath: str) -> tuple[str, str]:
             with open(filepath) as f:
@@ -411,8 +411,6 @@ def main(argv: Union[list[str], None] = None) -> int:
     elif args.command == "cleanup":
         if not _check_libcst_available():
             return 1
-        if args.check and args.write:
-            parser.error("--check and --write cannot be used together")
 
         # Get current version: explicit arg > auto-detected > None
         current_version = getattr(args, "current_version", None)
