@@ -248,9 +248,6 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
         self._user_prompt_func = prompt_func
         # Always use our wrapper that has access to context
         self.prompt_func = self._context_aware_prompt
-        self._processing_call = False
-        # Track decisions for replacements
-        self._should_replace: dict[cst.CSTNode, bool] = {}
 
     def _context_aware_prompt(
         self, old_call: str, new_call: str

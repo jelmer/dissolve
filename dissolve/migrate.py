@@ -57,7 +57,6 @@ def migrate_file(
     content: Optional[str] = None,
     interactive: bool = False,
     prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
-    show_diff: bool = False,
 ) -> Optional[str]:
     """Migrate a single Python source file.
 
@@ -70,7 +69,6 @@ def migrate_file(
         content: Optional source content. If not provided, reads from file_path.
         interactive: Whether to prompt for each replacement.
         prompt_func: Optional custom prompt function for interactive mode.
-        show_diff: Whether to show a diff of changes (not yet implemented).
 
     Returns:
         The migrated source code if changes were made, None otherwise.
@@ -201,7 +199,6 @@ def migrate_file_simple(file_path: str) -> bool:
 
 def migrate_file_with_imports(
     file_path: str,
-    module_resolver: Optional[Callable[[str], Optional[str]]] = None,
     interactive: bool = False,
     prompt_func: Optional[Callable[[str, str], Literal["y", "n", "a", "q"]]] = None,
     write: bool = False,
@@ -214,7 +211,6 @@ def migrate_file_with_imports(
 
     Args:
         file_path: Path to the Python file to migrate.
-        module_resolver: Optional function to resolve module paths (not used).
         interactive: Whether to prompt for each replacement.
         prompt_func: Optional custom prompt function for interactive mode.
         write: Whether to write changes back to the file.
