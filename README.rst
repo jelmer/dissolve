@@ -236,10 +236,61 @@ The `replace_me` decorator can currently be applied to:
 - Class methods (``@classmethod``)
 - Static methods (``@staticmethod``)
 - Properties (``@property``)
+- Classes
 
-In the future, support for other types of objects may be added:
+Class Deprecation
+-----------------
 
-- Classes (see https://github.com/jelmer/dissolve/issues/33)
+Classes can be deprecated by applying the ``@replace_me`` decorator to the class definition. The deprecated class should act as a wrapper around the new class, with the ``__init__`` method creating an instance of the replacement class:
+
+.. code-block:: python
+
+   from dissolve import replace_me
+
+   class UserManager:
+       def __init__(self, database_url, cache_size=100):
+           self.db = Database(database_url)
+           self.cache = Cache(cache_size)
+       
+       def get_user(self, user_id):
+           return self.db.fetch_user(user_id)
+
+   @replace_me(since="2.0.0")
+   class UserService:
+       def __init__(self, database_url, cache_size=50):
+           self._manager = UserManager(database_url, cache_size * 2)
+       
+       def get_user(self, user_id):
+           return self._manager.get_user(user_id)
+       
+       def old_method_name(self, arg):
+           return self._manager.new_method_name(arg)
+
+When the deprecated class is instantiated, this will emit a deprecation warning:
+
+.. code-block:: console
+
+   >>> service = UserService("postgres://localhost", cache_size=25)
+   <stdin>:1: DeprecationWarning: <class UserService at 0x...> has been deprecated since 2.0.0; use 'UserManager("postgres://localhost", cache_size=25 * 2)' instead
+
+The migration tool will replace all instantiations of the deprecated class with the wrapped class:
+
+.. code-block:: console
+
+   $ dissolve migrate --write myproject.py
+   # UserService("config", cache_size=100) becomes:
+   # UserManager("config", cache_size=100 * 2)
+
+Class deprecation works with all instantiation patterns including direct calls, list comprehensions, and factory patterns:
+
+.. code-block:: python
+
+   # All of these will be migrated automatically:
+   service = UserService(db_url)
+   services = [UserService(url) for url in urls]
+   factory = lambda: UserService("default")
+
+This approach allows library authors to provide full backward compatibility while guiding users to the new API. The deprecated class acts as a transparent wrapper that forwards method calls to the new implementation, and the migration tool automatically updates all usage sites to use the wrapped class directly.
 
 Dissolve will automatically determine the appropriate replacement expression
 based on the body of the decorated object. In some cases, this is not possible,
