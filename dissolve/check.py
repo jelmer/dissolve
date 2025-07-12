@@ -18,10 +18,10 @@ This module provides tools to verify that all @replace_me decorated functions
 can be successfully replaced according to their replacement expressions.
 """
 
-import ast
 from dataclasses import dataclass
 
-from .ast_helpers import is_replace_me_decorator
+import libcst as cst
+
 from .collector import DeprecatedFunctionCollector
 from .types import ReplacementExtractionError
 
@@ -41,81 +41,48 @@ class CheckResult:
     checked_functions: list[str]
 
 
-class ReplacementChecker(ast.NodeVisitor):
+class ReplacementChecker(cst.CSTVisitor):
     """Validates @replace_me decorated functions for correctness."""
 
     def __init__(self) -> None:
         self.errors: list[str] = []
         self.checked_functions: list[str] = []
+        self._collector = DeprecatedFunctionCollector()
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+    def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
         """Check function definitions with @replace_me decorators."""
-        self._check_decorated_node(node)
-        self.generic_visit(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        """Check async function definitions with @replace_me decorators."""
-        self._check_decorated_node(node)
-        self.generic_visit(node)
-
-    def _check_decorated_node(self, node) -> None:
-        """Check any decorated node (function or property) with @replace_me decorators."""
-        for decorator in node.decorator_list:
-            if is_replace_me_decorator(decorator):
-                self.checked_functions.append(node.name)
-
-                # Use the same logic as migrate to test extraction
-                collector = DeprecatedFunctionCollector()
-                try:
-                    collector._extract_replacement_from_body(node)
-                    # If we get here, the function can be processed successfully
-                except ReplacementExtractionError as e:
-                    # Capture the detailed error message from the exception
-                    self.errors.append(str(e))
-                break
-
-
-def check_replacements(source: str) -> CheckResult:
-    """Check all @replace_me decorated functions in source code.
-
-    Args:
-        source: Python source code to check.
-
-    Returns:
-        CheckResult with validation results.
-    """
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as e:
-        return CheckResult(
-            success=False,
-            errors=[f"Syntax error in source code: {e}"],
-            checked_functions=[],
+        # Check if this function has @replace_me decorator
+        has_replace_me = any(
+            self._collector._is_replace_me_decorator(d)
+            for d in original_node.decorators
         )
 
-    checker = ReplacementChecker()
-    checker.visit(tree)
+        if has_replace_me:
+            func_name = original_node.name.value
+            self.checked_functions.append(func_name)
 
-    success = len(checker.errors) == 0
-    return CheckResult(
-        success=success,
-        errors=checker.errors,
-        checked_functions=checker.checked_functions,
-    )
+            try:
+                # Try to extract replacement - this validates the function body
+                self._collector._extract_replacement_from_body(original_node)
+            except ReplacementExtractionError as e:
+                self.errors.append(
+                    f"Function '{func_name}': {e.details or 'Invalid replacement'}"
+                )
 
 
-def check_file(filepath: str) -> CheckResult:
-    """Check @replace_me decorated functions in a Python file.
+def check_file(file_path: str) -> CheckResult:
+    """Check all @replace_me decorated functions in a file.
 
     Args:
-        filepath: Path to the Python file to check.
+        file_path: Path to Python file to check.
 
     Returns:
-        CheckResult with validation results.
+        CheckResult containing validation results.
     """
     try:
-        with open(filepath) as f:
+        with open(file_path, encoding="utf-8") as f:
             source = f.read()
+        return check_replacements(source)
     except OSError as e:
         return CheckResult(
             success=False,
@@ -123,4 +90,34 @@ def check_file(filepath: str) -> CheckResult:
             checked_functions=[],
         )
 
-    return check_replacements(source)
+
+def check_replacements(source: str) -> CheckResult:
+    """Check all @replace_me decorated functions in source code.
+
+    This function validates that all functions decorated with @replace_me
+    have valid replacement expressions that can be extracted.
+
+    Args:
+        source: Python source code to check.
+
+    Returns:
+        CheckResult containing validation results.
+    """
+    try:
+        module = cst.parse_module(source)
+    except cst.ParserSyntaxError as e:
+        return CheckResult(
+            success=False,
+            errors=[f"Failed to parse source: {e}"],
+            checked_functions=[],
+        )
+
+    checker = ReplacementChecker()
+    wrapper = cst.MetadataWrapper(module)
+    wrapper.visit(checker)
+
+    return CheckResult(
+        success=len(checker.errors) == 0,
+        errors=checker.errors,
+        checked_functions=checker.checked_functions,
+    )

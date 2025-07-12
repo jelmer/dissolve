@@ -48,8 +48,8 @@ def old_func(x, y):
         result = check_replacements(source)
         assert not result.success
         assert result.checked_functions == ["old_func"]
-        assert "cannot be processed" in result.errors[0]
-        assert "Function body is too complex" in result.errors[0]
+        assert "Function" in result.errors[0]
+        assert "multiple statements" in result.errors[0]
 
     def test_no_return_statement(self):
         source = """
@@ -60,8 +60,8 @@ def old_func(x, y):
         result = check_replacements(source)
         assert not result.success
         assert result.checked_functions == ["old_func"]
-        assert "cannot be processed" in result.errors[0]
-        assert "Function body is too complex" in result.errors[0]
+        assert "Function" in result.errors[0]
+        assert "return statement" in result.errors[0]
 
     def test_empty_return(self):
         source = """
@@ -72,8 +72,8 @@ def old_func(x, y):
         result = check_replacements(source)
         assert not result.success
         assert result.checked_functions == ["old_func"]
-        assert "cannot be processed" in result.errors[0]
-        assert "Function body is too complex" in result.errors[0]
+        assert "Function" in result.errors[0]
+        assert "empty return" in result.errors[0]
 
     def test_no_replace_me_functions(self):
         source = """
@@ -93,7 +93,7 @@ def old_func(x, y):
         """
         result = check_replacements(source)
         assert not result.success
-        assert "Syntax error in source code" in result.errors[0]
+        assert "Failed to parse source" in result.errors[0]
 
     def test_multiple_functions(self):
         source = """

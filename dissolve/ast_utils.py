@@ -69,35 +69,3 @@ def create_ast_from_value(value: Any) -> ast.AST:
         AST representation of the value
     """
     return ast.Constant(value=value)
-
-
-def substitute_in_expression(expr_str: str, param_map: dict[str, Any]) -> str:
-    """Substitute parameters in a string expression using AST.
-
-    Args:
-        expr_str: Expression string with parameters
-        param_map: Dictionary mapping parameter names to their values
-
-    Returns:
-        Expression string with parameters substituted
-    """
-    try:
-        # Parse the expression
-        expr_ast = ast.parse(expr_str, mode="eval").body
-
-        # Convert values to AST nodes
-        ast_param_map = {
-            name: create_ast_from_value(value)
-            if not isinstance(value, ast.AST)
-            else value
-            for name, value in param_map.items()
-        }
-
-        # Substitute parameters
-        result_ast = substitute_parameters(expr_ast, ast_param_map)
-
-        # Convert back to string
-        return ast.unparse(result_ast)
-    except Exception:
-        # Fallback to original if AST manipulation fails
-        return expr_str

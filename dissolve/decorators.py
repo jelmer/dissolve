@@ -105,7 +105,7 @@ def replace_me(
     import textwrap
     import warnings
 
-    from .ast_utils import substitute_in_expression
+    from .ast_utils import create_ast_from_value, substitute_parameters
 
     def function_decorator(callable: F) -> F:
         def decorated_function(*args: Any, **kwargs: Any) -> Any:
@@ -150,7 +150,26 @@ def replace_me(
                         arg_map[key] = value
 
                     # Replace parameter names with actual values using AST
-                    evaluated: str = substitute_in_expression(replacement_expr, arg_map)
+                    try:
+                        # Parse the replacement expression
+                        expr_ast = ast.parse(replacement_expr, mode="eval").body
+
+                        # Convert values to AST nodes
+                        ast_param_map = {
+                            name: create_ast_from_value(value)
+                            if not isinstance(value, ast.AST)
+                            else value
+                            for name, value in arg_map.items()
+                        }
+
+                        # Substitute parameters
+                        result_ast = substitute_parameters(expr_ast, ast_param_map)
+
+                        # Convert back to string
+                        evaluated = ast.unparse(result_ast)
+                    except Exception:
+                        # Fallback to original if AST manipulation fails
+                        evaluated = replacement_expr
 
                     if since:
                         w = DeprecationWarning(

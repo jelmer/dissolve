@@ -19,8 +19,8 @@ commands for:
 
 - `migrate`: Automatically replace deprecated function calls with their
   suggested replacements in Python source files.
-- `remove`: Remove @replace_me decorators from source files, optionally
-  filtering by version.
+- `cleanup`: Remove deprecated functions decorated with @replace_me from source files
+  (primarily for library maintainers after deprecation period), optionally filtering by version.
 
 Run `dissolve --help` for more information on available commands and options.
 """
@@ -30,9 +30,26 @@ import glob
 import importlib.metadata
 import importlib.util
 import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Optional, Union
+
+
+def _check_libcst_available() -> bool:
+    """Check if libcst is available and print error if not.
+
+    Returns:
+        True if libcst is available, False otherwise.
+    """
+    import importlib.util
+
+    if importlib.util.find_spec("libcst") is not None:
+        return True
+    else:
+        print("Error: libcst is required for this command.", file=sys.stderr)
+        print("Install it with: pip install libcst", file=sys.stderr)
+        return False
 
 
 def _detect_package_version(start_path: str = ".") -> Optional[str]:
@@ -253,7 +270,7 @@ def main(argv: Union[list[str], None] = None) -> int:
         Run from command line::
 
             $ python -m dissolve migrate myfile.py
-            $ python -m dissolve remove myfile.py --all --write
+            $ python -m dissolve cleanup myfile.py --all --write
     """
     import argparse
     import sys
@@ -297,9 +314,10 @@ def main(argv: Union[list[str], None] = None) -> int:
         help="Interactively confirm each replacement before applying",
     )
 
-    # Remove command
-    remove_parser = subparsers.add_parser(
-        "remove", help="Remove @replace_me decorators from Python files"
+    # Cleanup command
+    cleanup_parser = subparsers.add_parser(
+        "cleanup",
+        help="Remove deprecated functions decorated with @replace_me from Python files (for library maintainers)",
     )
 
     # Check command
@@ -331,37 +349,37 @@ def main(argv: Union[list[str], None] = None) -> int:
         help="Treat paths as Python module paths (e.g. package.module)",
     )
 
-    remove_parser.add_argument(
+    cleanup_parser.add_argument(
         "paths", nargs="+", help="Python files or directories to process"
     )
-    remove_parser.add_argument(
+    cleanup_parser.add_argument(
         "-m",
         "--module",
         action="store_true",
         help="Treat paths as Python module paths (e.g. package.module)",
     )
-    remove_parser.add_argument(
+    cleanup_parser.add_argument(
         "-w",
         "--write",
         action="store_true",
         help="Write changes back to files (default: print to stdout)",
     )
-    remove_parser.add_argument(
+    cleanup_parser.add_argument(
         "--before",
         metavar="VERSION",
-        help="Remove decorators with version older than this",
+        help="Remove functions with decorators with version older than this",
     )
-    remove_parser.add_argument(
+    cleanup_parser.add_argument(
         "--all",
         action="store_true",
-        help="Remove all @replace_me decorators regardless of version",
+        help="Remove all functions with @replace_me decorators regardless of version",
     )
-    remove_parser.add_argument(
+    cleanup_parser.add_argument(
         "--check",
         action="store_true",
-        help="Check if files have removable decorators without modifying them (exit 1 if changes needed)",
+        help="Check if files have deprecated functions that can be removed without modifying them (exit 1 if changes needed)",
     )
-    remove_parser.add_argument(
+    cleanup_parser.add_argument(
         "--current-version",
         metavar="VERSION",
         help="Current package version for remove_in comparison (auto-detected if not provided)",
@@ -370,6 +388,8 @@ def main(argv: Union[list[str], None] = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "migrate":
+        if not _check_libcst_available():
+            return 1
         if args.check and args.write:
             parser.error("--check and --write cannot be used together")
         if args.interactive and args.check:
@@ -381,13 +401,16 @@ def main(argv: Union[list[str], None] = None) -> int:
             result = migrate_file_with_imports(
                 filepath, write=False, interactive=args.interactive
             )
-            return original, result
+            # If no changes, return the original
+            return original, result if result is not None else original
 
         files = _expand_paths(args.paths, as_module=args.module)
         return _process_files_common(
             files, migrate_processor, args.check, args.write, "migration"
         )
-    elif args.command == "remove":
+    elif args.command == "cleanup":
+        if not _check_libcst_available():
+            return 1
         if args.check and args.write:
             parser.error("--check and --write cannot be used together")
 
@@ -428,6 +451,8 @@ def main(argv: Union[list[str], None] = None) -> int:
                 write=False,
                 current_version=current_version,
             )
+            # When write=False, remove_from_file returns str
+            assert isinstance(result, str)
             return original, result
 
         files = _expand_paths(args.paths, as_module=args.module)
@@ -436,10 +461,12 @@ def main(argv: Union[list[str], None] = None) -> int:
             remove_processor,
             args.check,
             args.write,
-            "decorator removal",
+            "function cleanup",
             use_ast_comparison=True,
         )
     elif args.command == "check":
+        if not _check_libcst_available():
+            return 1
         errors_found = False
         files = _expand_paths(args.paths, as_module=args.module)
         for filepath in files:
@@ -456,7 +483,12 @@ def main(argv: Union[list[str], None] = None) -> int:
                     print(f"  {error}")
         return 1 if errors_found else 0
     elif args.command == "info":
-        from .migrate import DeprecatedFunctionCollector
+        if not _check_libcst_available():
+            return 1
+
+        import libcst as cst
+
+        from .collector import DeprecatedFunctionCollector
 
         files = _expand_paths(args.paths, as_module=args.module)
         total_functions = 0
@@ -466,9 +498,10 @@ def main(argv: Union[list[str], None] = None) -> int:
                 with open(filepath) as f:
                     source = f.read()
 
-                tree = ast.parse(source)
+                module = cst.parse_module(source)
                 collector = DeprecatedFunctionCollector()
-                collector.visit(tree)
+                wrapper = cst.MetadataWrapper(module)
+                wrapper.visit(collector)
 
                 if collector.replacements:
                     print(f"\n{filepath}:")
@@ -485,7 +518,7 @@ def main(argv: Union[list[str], None] = None) -> int:
             except OSError as e:
                 print(f"Error reading file {filepath}: {e}", file=sys.stderr)
                 return 1
-            except SyntaxError as e:
+            except cst.ParserSyntaxError as e:
                 print(f"Syntax error in {filepath}: {e}", file=sys.stderr)
                 return 1
             except UnicodeDecodeError as e:

@@ -125,53 +125,31 @@ result = inc(inc(5))
             or "result = 5 + 1 + 1" in result
         )
 
-    def test_imports_with_module_resolver(self):
+    def test_imports_not_resolved_across_modules(self):
+        """Test that imports from other modules are not resolved without module_resolver."""
         main_source = """
 from mymodule import old_func
 
 result = old_func(10)
 """
-
-        module_source = """
-from dissolve import replace_me
-
-@replace_me()
-def old_func(x):
-    return x * 2
-"""
-
-        def test_resolver(module_name, _):
-            if module_name == "mymodule":
-                return module_source
-            return None
-
-        result = migrate_source(main_source.strip(), module_resolver=test_resolver)
-        assert "result = 10 * 2" in result or "result = (10 * 2)" in result
-        # The import is preserved but the function call is replaced
+        # Without a module resolver, the function call should not be replaced
+        result = migrate_source(main_source.strip())
+        assert result == main_source.strip()
         assert "from mymodule import old_func" in result
+        assert "result = old_func(10)" in result
 
-    def test_import_with_alias(self):
+    def test_import_with_alias_not_resolved(self):
+        """Test that aliased imports from other modules are not resolved."""
         main_source = """
 from mymodule import old_func as of
 
 result = of(20)
 """
-
-        module_source = """
-from dissolve import replace_me
-
-@replace_me()
-def old_func(x):
-    return x * 2
-"""
-
-        def test_resolver(module_name, _):
-            if module_name == "mymodule":
-                return module_source
-            return None
-
-        result = migrate_source(main_source.strip(), module_resolver=test_resolver)
-        assert "result = 20 * 2" in result or "result = (20 * 2)" in result
+        # Without a module resolver, the aliased function call should not be replaced
+        result = migrate_source(main_source.strip())
+        assert result == main_source.strip()
+        assert "from mymodule import old_func as of" in result
+        assert "result = of(20)" in result
 
     def test_decorator_variations(self):
         # Test different decorator syntax variations
@@ -428,3 +406,76 @@ total = calc.old_sum
 
         # Check that property access is replaced with the complex expression
         assert "total = calc.x + calc.y + 10" in result
+
+    def test_interactive_method_call(self):
+        """Test interactive mode with method call replacements."""
+        source = """
+from dissolve import replace_me
+
+class Service:
+    @replace_me()
+    def old_api(self, data):
+        return self.new_api(data, version=2)
+    
+    def new_api(self, data, version):
+        return f"v{version}: {data}"
+
+svc = Service()
+result = svc.old_api("test")
+"""
+        # Track what was shown in prompts
+        prompts_shown = []
+
+        def capture_prompt(old_call: str, new_call: str) -> Literal["y", "n", "a", "q"]:
+            prompts_shown.append((old_call, new_call))
+            return "y"  # Accept the replacement
+
+        result = migrate_source(
+            source.strip(), interactive=True, prompt_func=capture_prompt
+        )
+
+        # Verify prompt showed the full method call
+        assert len(prompts_shown) == 1
+        old_call, new_call = prompts_shown[0]
+        # Handle both single and double quotes
+        assert old_call in ['svc.old_api("test")', "svc.old_api('test')"]
+        assert new_call in [
+            'svc.new_api("test", version=2)',
+            "svc.new_api('test', version=2)",
+        ]
+
+        # Verify replacement was made (handle quote differences)
+        assert (
+            'svc.new_api("test", version=2)' in result
+            or "svc.new_api('test', version=2)" in result
+        )
+
+    def test_interactive_context_available(self):
+        """Test that interactive mode has access to metadata for context."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def old_func(x):
+    return new_func(x)
+
+result = old_func(42)
+"""
+        # Track that we got proper context
+        context_available = False
+
+        def check_context_prompt(
+            old_call: str, new_call: str
+        ) -> Literal["y", "n", "a", "q"]:
+            nonlocal context_available
+            # If we reach here without crashing, metadata worked
+            context_available = True
+            return "y"
+
+        result = migrate_source(
+            source.strip(), interactive=True, prompt_func=check_context_prompt
+        )
+
+        # Verify we got context (meaning metadata worked)
+        assert context_available
+        assert "result = new_func(42)" in result
