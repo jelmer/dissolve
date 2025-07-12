@@ -14,23 +14,8 @@
 
 """Type definitions for dissolve."""
 
-from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Optional, Protocol, TypeVar, Union
-
-# Type variable for decorated functions
-F = TypeVar("F", bound=Callable[..., Any])
-
-# Type aliases for better readability
-VersionType = Union[tuple[int, ...], str, None]
-
-
-class Replacement(Protocol):
-    """Protocol for replacement information."""
-
-    old_name: str
-    replacement_expr: str
-    since: Optional[str]
+from typing import Optional
 
 
 class ReplacementFailureReason(Enum):
@@ -41,14 +26,6 @@ class ReplacementFailureReason(Enum):
     RECURSIVE_CALL = "Function contains recursive calls"
     LOCAL_IMPORTS = "Function contains local imports"
     COMPLEX_BODY = "Function body is too complex to inline"
-
-
-@dataclass
-class LocalVariableReference:
-    """Information about a local variable reference in a replacement expression."""
-
-    name: str
-    source_module: Union[str, None] = None
 
 
 class ReplacementExtractionError(Exception):
