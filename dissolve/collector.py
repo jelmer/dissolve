@@ -19,11 +19,23 @@ This module provides tools to collect and analyze functions decorated with
 """
 
 import re
+from enum import Enum
 from typing import Optional, Union
 
 import libcst as cst
 
 from .types import ReplacementExtractionError, ReplacementFailureReason
+
+
+class ConstructType(Enum):
+    """Enum representing the type of construct being replaced."""
+
+    FUNCTION = "function"
+    PROPERTY = "property"
+    CLASSMETHOD = "classmethod"
+    STATICMETHOD = "staticmethod"
+    ASYNC_FUNCTION = "async_function"
+    CLASS = "class"
 
 
 class ReplaceInfo:
@@ -33,30 +45,18 @@ class ReplaceInfo:
         old_name: The name of the deprecated function or class.
         replacement_expr: The replacement expression template with parameter
             placeholders in the format {param_name}.
-        is_property: Whether this is a property (attribute access) or a callable.
-        is_classmethod: Whether this is a class method.
-        is_staticmethod: Whether this is a static method.
-        is_async: Whether this is an async function.
-        is_class: Whether this is a class (wrapper-based deprecation).
+        construct_type: The type of construct being replaced.
     """
 
     def __init__(
         self,
         old_name: str,
         replacement_expr: str,
-        is_property: bool = False,
-        is_classmethod: bool = False,
-        is_staticmethod: bool = False,
-        is_async: bool = False,
-        is_class: bool = False,
+        construct_type: ConstructType = ConstructType.FUNCTION,
     ) -> None:
         self.old_name = old_name
         self.replacement_expr = replacement_expr
-        self.is_property = is_property
-        self.is_classmethod = is_classmethod
-        self.is_staticmethod = is_staticmethod
-        self.is_async = is_async
-        self.is_class = is_class
+        self.construct_type = construct_type
 
 
 class UnreplaceableNode:
@@ -71,35 +71,24 @@ class UnreplaceableNode:
         old_name: str,
         reason: ReplacementFailureReason,
         message: str,
-        is_property: bool = False,
-        is_classmethod: bool = False,
-        is_staticmethod: bool = False,
-        is_async: bool = False,
-        is_class: bool = False,
+        construct_type: ConstructType = ConstructType.FUNCTION,
     ) -> None:
         self.old_name = old_name
         self.reason = reason
         self.message = message
-        self.is_property = is_property
-        self.is_classmethod = is_classmethod
-        self.is_staticmethod = is_staticmethod
-        self.is_async = is_async
-        self.is_class = is_class
+        self.construct_type = construct_type
 
-    def construct_type(self) -> str:
+    def construct_type_str(self) -> str:
         """Return a human-readable description of the construct type."""
-        if self.is_class:
-            return "Class"
-        elif self.is_property:
-            return "Property"
-        elif self.is_classmethod:
-            return "Class method"
-        elif self.is_staticmethod:
-            return "Static method"
-        elif self.is_async:
-            return "Async function"
-        else:
-            return "Function"
+        type_map = {
+            ConstructType.CLASS: "Class",
+            ConstructType.PROPERTY: "Property",
+            ConstructType.CLASSMETHOD: "Class method",
+            ConstructType.STATICMETHOD: "Static method",
+            ConstructType.ASYNC_FUNCTION: "Async function",
+            ConstructType.FUNCTION: "Function",
+        }
+        return type_map[self.construct_type]
 
 
 class ImportInfo:
@@ -142,23 +131,9 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
 
     def leave_FunctionDef(self, original_node: cst.FunctionDef) -> None:
         """Process function definitions to find @replace_me decorators."""
-        # Check decorator types
-        is_property = any(
-            self._is_decorator_named(d, "property") for d in self._current_decorators
-        )
-        is_classmethod = any(
-            self._is_decorator_named(d, "classmethod") for d in self._current_decorators
-        )
-        is_staticmethod = any(
-            self._is_decorator_named(d, "staticmethod")
-            for d in self._current_decorators
-        )
-
-        # Check if this is an async function
-        is_async = (
-            isinstance(original_node, cst.FunctionDef)
-            and hasattr(original_node, "asynchronous")
-            and original_node.asynchronous is not None
+        # Determine construct type
+        construct_type = self._determine_construct_type(
+            original_node, self._current_decorators
         )
 
         # Check for @replace_me
@@ -173,20 +148,14 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
                 self.replacements[func_name] = ReplaceInfo(
                     func_name,
                     replacement_expr,
-                    is_property=is_property,
-                    is_classmethod=is_classmethod,
-                    is_staticmethod=is_staticmethod,
-                    is_async=is_async,
+                    construct_type=construct_type,
                 )
             except ReplacementExtractionError as e:
                 self.unreplaceable[func_name] = UnreplaceableNode(
                     func_name,
                     e.failure_reason,
                     e.details or "No details provided",
-                    is_property=is_property,
-                    is_classmethod=is_classmethod,
-                    is_staticmethod=is_staticmethod,
-                    is_async=is_async,
+                    construct_type=construct_type,
                 )
 
         self._current_decorators = []
@@ -209,17 +178,36 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
                 self.replacements[class_name] = ReplaceInfo(
                     class_name,
                     replacement_expr,
-                    is_class=True,
+                    construct_type=ConstructType.CLASS,
                 )
             except ReplacementExtractionError as e:
                 self.unreplaceable[class_name] = UnreplaceableNode(
                     class_name,
                     e.failure_reason,
                     e.details or "No details provided",
-                    is_class=True,
+                    construct_type=ConstructType.CLASS,
                 )
 
         self._current_class_decorators = []
+
+    def _determine_construct_type(
+        self, node: cst.FunctionDef, decorators: list[cst.Decorator]
+    ) -> ConstructType:
+        """Determine the construct type based on decorators and function properties."""
+        if any(self._is_decorator_named(d, "property") for d in decorators):
+            return ConstructType.PROPERTY
+        elif any(self._is_decorator_named(d, "classmethod") for d in decorators):
+            return ConstructType.CLASSMETHOD
+        elif any(self._is_decorator_named(d, "staticmethod") for d in decorators):
+            return ConstructType.STATICMETHOD
+        elif (
+            isinstance(node, cst.FunctionDef)
+            and hasattr(node, "asynchronous")
+            and node.asynchronous is not None
+        ):
+            return ConstructType.ASYNC_FUNCTION
+        else:
+            return ConstructType.FUNCTION
 
     def visit_ImportFrom(self, node: cst.ImportFrom) -> None:
         """Collect import information for module resolution."""

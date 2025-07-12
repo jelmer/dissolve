@@ -137,7 +137,7 @@ def migrate_source(
     # Report constructs that cannot be processed
     if collector.unreplaceable:
         for name, unreplaceable_node in collector.unreplaceable.items():
-            construct_type = unreplaceable_node.construct_type()
+            construct_type = unreplaceable_node.construct_type_str()
             logging.warning(
                 f"{construct_type} '{name}' cannot be processed: {unreplaceable_node.reason.value}"
                 + (

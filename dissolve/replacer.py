@@ -25,7 +25,7 @@ from typing import Callable, Literal, Union
 import libcst as cst
 from libcst.metadata import PositionProvider
 
-from .collector import ReplaceInfo
+from .collector import ConstructType, ReplaceInfo
 
 
 class FunctionCallReplacer(cst.CSTTransformer):
@@ -66,7 +66,7 @@ class FunctionCallReplacer(cst.CSTTransformer):
         if updated_node.attr.value in self.replacements:
             replacement = self.replacements[updated_node.attr.value]
             # Only replace if this is marked as a property (not a method)
-            if replacement.is_property:
+            if replacement.construct_type == ConstructType.PROPERTY:
                 new_node = self._create_property_replacement_node(
                     updated_node, replacement
                 )
@@ -104,9 +104,12 @@ class FunctionCallReplacer(cst.CSTTransformer):
         is_method_call = isinstance(call.func, cst.Attribute)
         if is_method_call:
             special_params = []
-            if replacement.is_classmethod:
+            if replacement.construct_type == ConstructType.CLASSMETHOD:
                 special_params.append("cls")
-            elif not replacement.is_staticmethod:
+            elif replacement.construct_type not in (
+                ConstructType.STATICMETHOD,
+                ConstructType.PROPERTY,
+            ):
                 special_params.append("self")
             param_names = [p for p in param_names if p not in special_params]
 
@@ -146,16 +149,26 @@ class FunctionCallReplacer(cst.CSTTransformer):
         replacement_code = replacement.replacement_expr
 
         # Handle async function double-await issue
-        if replacement.is_async and self._is_awaited_call(original_call):
+        if (
+            replacement.construct_type == ConstructType.ASYNC_FUNCTION
+            and self._is_awaited_call(original_call)
+        ):
             # Remove leading await from replacement if the call itself is awaited
             replacement_code = re.sub(r"^\s*await\s+", "", replacement_code)
 
         # Handle special parameters for method calls
         if isinstance(original_call.func, cst.Attribute):
             obj_code = cst.Module([]).code_for_node(original_call.func.value)
-            if replacement.is_classmethod and "{cls}" in replacement_code:
+            if (
+                replacement.construct_type == ConstructType.CLASSMETHOD
+                and "{cls}" in replacement_code
+            ):
                 replacement_code = replacement_code.replace("{cls}", obj_code)
-            elif not replacement.is_staticmethod and "{self}" in replacement_code:
+            elif (
+                replacement.construct_type
+                not in (ConstructType.STATICMETHOD, ConstructType.PROPERTY)
+                and "{self}" in replacement_code
+            ):
                 replacement_code = replacement_code.replace("{self}", obj_code)
 
         # Replace parameter placeholders with actual values
@@ -403,7 +416,7 @@ class InteractiveFunctionCallReplacer(FunctionCallReplacer):
             replacement = self.replacements[updated_node.attr.value]
 
             # Only replace if this is marked as a property (not a method)
-            if replacement.is_property:
+            if replacement.construct_type == ConstructType.PROPERTY:
                 # Get string representations of old and new attribute access
                 old_attr_str = cst.Module([]).code_for_node(original_node)
                 replacement_node = self._create_property_replacement_node(
