@@ -18,7 +18,7 @@ The library addresses the common problem of API deprecation by providing:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   CLI Interface │    │  AST Processing │    │ Decorator System│
+│   CLI Interface │    │  CST Processing │    │ Decorator System│
 │   (__main__.py) │    │    Pipeline     │    │ (decorators.py) │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
@@ -32,8 +32,8 @@ The library addresses the common problem of API deprecation by providing:
     ┌────────────────────────────┼────────────────────────────┐
     │                            │                            │
 ┌─────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Validation  │    │   AST Utils     │    │  Import Utils   │
-│ (check.py)  │    │ (ast_utils.py)  │    │(import_utils.py)│
+│ Validation  │    │   CST Utils     │    │  Import Utils   │
+│ (check.py)  │    │ (libcst-based)  │    │(import_utils.py)│
 └─────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
@@ -50,20 +50,22 @@ def deprecated_function(x, y):
 **Responsibilities:**
 - Runtime deprecation warnings
 - Metadata storage for migration tools
-- AST-based analysis to extract replacement expressions
+- AST-based analysis to extract replacement expressions (still uses ast for runtime warnings)
 
-#### 2. AST Processing Pipeline
-A collection of modules that parse, analyze, and transform Python AST:
+#### 2. CST Processing Pipeline
+A collection of modules that parse, analyze, and transform Python code using libcst (Concrete Syntax Tree):
 
-- **Collector** (`collector.py`): Discovers `@replace_me` decorated functions and extracts replacement information
-- **Replacer** (`replacer.py`): Transforms function calls to use replacement expressions
-- **AST Utilities** (`ast_utils.py`, `ast_helpers.py`): Low-level AST manipulation helpers
+- **Collector** (`collector.py`): Discovers `@replace_me` decorated functions and extracts replacement information using CST visitors
+- **Replacer** (`replacer.py`): Transforms function calls to use replacement expressions while preserving formatting
+- **CST-based processing**: Leverages libcst for format-preserving transformations
+- **Legacy AST Utilities** (`ast_utils.py`): Retained for backward compatibility but no longer actively used
 
 #### 3. Migration Engine (`migrate.py`)
 The core migration logic that orchestrates the transformation process:
-- Cross-file migration with import resolution
-- Interactive mode for user confirmation
+- Cross-file migration with import resolution using libcst
+- Interactive mode for user confirmation with position tracking via CST metadata
 - Module resolver system for handling dependencies
+- Format-preserving transformations to maintain code style
 
 #### 4. Command-Line Interface (`__main__.py`)
 Four main commands:
@@ -73,9 +75,9 @@ Four main commands:
 - `dissolve info`: List all deprecated functions and replacements
 
 #### 5. Validation and Analysis
-- **Check** (`check.py`): Validates that `@replace_me` functions can be processed
-- **Context Analyzer** (`context_analyzer.py`): Analyzes local definitions and imports
-- **Import Utils** (`import_utils.py`): Manages import requirements and dependencies
+- **Check** (`check.py`): Validates that `@replace_me` functions can be processed using libcst
+- **Context Analyzer** (`context_analyzer.py`): Analyzes local definitions and imports (libcst-based)
+- **Import Utils** (`import_utils.py`): Manages import requirements and dependencies using CST visitors
 
 ## Key Data Structures
 
@@ -115,18 +117,18 @@ class ReplacementFailureReason(Enum):
 ```
 Source Code Input
     ↓
-Parse AST → Collect @replace_me functions → Extract replacement expressions
+Parse CST (libcst) → Collect @replace_me functions → Extract replacement expressions
     ↓
 Find function calls → Match with replacements → Substitute arguments
     ↓
-Generate new AST → Convert to source code → Output migrated code
+Transform CST nodes → Generate format-preserving code → Output migrated code
 ```
 
 ### 2. Validation Workflow
 ```
 Source Code Input
     ↓
-Parse AST → Find @replace_me functions → Validate function bodies
+Parse CST → Find @replace_me functions → Validate function bodies
     ↓
 Check for complex bodies/recursive calls → Report errors/success
 ```
@@ -135,19 +137,19 @@ Check for complex bodies/recursive calls → Report errors/success
 ```
 Source Code Input
     ↓
-Parse AST → Find @replace_me functions → Check version constraints
+Parse CST → Find @replace_me functions → Check version constraints
     ↓
 Remove matching functions entirely → Output cleaned code
 ```
 
 ## Design Patterns
 
-### AST Visitor Pattern
-Extensive use of `ast.NodeVisitor` and `ast.NodeTransformer`:
-- `DeprecatedFunctionCollector`: Collects deprecated function information
-- `FunctionCallReplacer`: Transforms function calls
-- `ReplaceRemover`: Removes deprecated functions
-- `ContextAnalyzer`: Analyzes module context
+### CST Visitor Pattern
+Extensive use of libcst visitors and transformers:
+- `DeprecatedFunctionCollector` (cst.CSTVisitor): Collects deprecated function information
+- `FunctionCallReplacer` (cst.CSTTransformer): Transforms function calls while preserving formatting
+- `ReplaceRemover` (cst.CSTTransformer): Removes deprecated functions cleanly
+- `ContextAnalyzer` (cst.CSTVisitor): Analyzes module context with metadata support
 
 ### Strategy Pattern
 Different migration strategies:
@@ -227,8 +229,19 @@ Understands the difference between local definitions and imports:
 ## Testing Strategy
 
 The test suite covers:
-- AST transformation correctness
+- CST transformation correctness
 - CLI interface behavior
 - Error handling scenarios
 - Edge cases in Python syntax
 - Cross-module dependency resolution
+- Format preservation validation
+
+## Migration to libcst
+
+The library now uses libcst (Concrete Syntax Tree) instead of Python's built-in ast module for all transformation operations. Key changes:
+
+- **Format Preservation**: libcst preserves comments, whitespace, and original formatting
+- **Metadata Support**: Position tracking for interactive mode via `cst.MetadataWrapper`
+- **Cleaner Transformations**: Uses `cst.RemovalSentinel.REMOVE` for node removal
+- **Hybrid Architecture**: libcst for migrations, ast still used in decorators.py for runtime warnings
+- **Optional Dependency**: libcst is only required for migration features (`migrate` extra)

@@ -16,7 +16,7 @@ import libcst as cst
 import pytest
 
 from dissolve import replace_me
-from dissolve.collector import DeprecatedFunctionCollector
+from dissolve.collector import ConstructType, DeprecatedFunctionCollector
 from dissolve.migrate import migrate_file
 
 
@@ -49,7 +49,7 @@ class UserService:
     # Should detect the UserService class
     assert "UserService" in collector.replacements
     replacement = collector.replacements["UserService"]
-    assert replacement.is_class
+    assert replacement.construct_type == ConstructType.CLASS
     assert (
         "UserManager({database_url}, {cache_size} * 2)" == replacement.replacement_expr
     )
