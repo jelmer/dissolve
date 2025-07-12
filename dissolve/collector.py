@@ -62,16 +62,44 @@ class ReplaceInfo:
 class UnreplaceableNode:
     """Represents a node that cannot be replaced.
 
-    This is used to indicate that a function or property cannot be replaced
+    This is used to indicate that a function, class, or property cannot be replaced
     due to its complexity or structure.
     """
 
     def __init__(
-        self, old_name: str, reason: ReplacementFailureReason, message: str
+        self,
+        old_name: str,
+        reason: ReplacementFailureReason,
+        message: str,
+        is_property: bool = False,
+        is_classmethod: bool = False,
+        is_staticmethod: bool = False,
+        is_async: bool = False,
+        is_class: bool = False,
     ) -> None:
         self.old_name = old_name
         self.reason = reason
         self.message = message
+        self.is_property = is_property
+        self.is_classmethod = is_classmethod
+        self.is_staticmethod = is_staticmethod
+        self.is_async = is_async
+        self.is_class = is_class
+
+    def construct_type(self) -> str:
+        """Return a human-readable description of the construct type."""
+        if self.is_class:
+            return "Class"
+        elif self.is_property:
+            return "Property"
+        elif self.is_classmethod:
+            return "Class method"
+        elif self.is_staticmethod:
+            return "Static method"
+        elif self.is_async:
+            return "Async function"
+        else:
+            return "Function"
 
 
 class ImportInfo:
@@ -152,7 +180,13 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
                 )
             except ReplacementExtractionError as e:
                 self.unreplaceable[func_name] = UnreplaceableNode(
-                    func_name, e.failure_reason, e.details or "No details provided"
+                    func_name,
+                    e.failure_reason,
+                    e.details or "No details provided",
+                    is_property=is_property,
+                    is_classmethod=is_classmethod,
+                    is_staticmethod=is_staticmethod,
+                    is_async=is_async,
                 )
 
         self._current_decorators = []
@@ -179,7 +213,10 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
                 )
             except ReplacementExtractionError as e:
                 self.unreplaceable[class_name] = UnreplaceableNode(
-                    class_name, e.failure_reason, e.details or "No details provided"
+                    class_name,
+                    e.failure_reason,
+                    e.details or "No details provided",
+                    is_class=True,
                 )
 
         self._current_class_decorators = []

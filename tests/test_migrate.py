@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from typing import Literal
 
 from dissolve.migrate import migrate_source
@@ -215,6 +216,299 @@ def normal_func(x):
 print(normal_func(5))
 """
         result = migrate_source(source.strip())
+        assert result == source.strip()
+
+    def test_enhanced_error_reporting(self, caplog):
+        """Test that detailed error messages are logged for functions that cannot be migrated."""
+        # Start with a function that has multiple statements (known to fail)
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def complex_func(x):
+    # This function cannot be migrated because it has multiple statements
+    y = x + 1
+    return y
+
+result = complex_func(5)
+"""
+        with caplog.at_level(logging.WARNING):
+            result = migrate_source(source.strip())
+
+        # Verify that warning messages are logged
+        warning_messages = [
+            record.message for record in caplog.records if record.levelname == "WARNING"
+        ]
+
+        # Check that we got warnings
+        assert len(warning_messages) == 1
+
+        # Check that the warning contains detailed reason
+        complex_warning = warning_messages[0]
+        assert "complex_func" in complex_warning
+        assert "Function 'complex_func' cannot be processed" in complex_warning
+        assert "Function body is too complex to inline" in complex_warning
+
+        # Verify the source is returned unchanged since no functions can be migrated
+        assert result == source.strip()
+
+    def test_enhanced_error_reporting_for_classes(self, caplog):
+        """Test that detailed error messages are logged for classes that cannot be migrated."""
+        # Create a class without an __init__ method (should fail)
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+class BadClass:
+    # This class cannot be migrated because it has no __init__ method
+    def some_method(self):
+        return "hello"
+
+result = BadClass()
+"""
+        with caplog.at_level(logging.WARNING):
+            result = migrate_source(source.strip())
+
+        # Verify that warning messages are logged
+        warning_messages = [
+            record.message for record in caplog.records if record.levelname == "WARNING"
+        ]
+
+        # Check that we got warnings
+        assert len(warning_messages) == 1
+
+        # Check that the warning contains detailed reason and specifies it's a class
+        class_warning = warning_messages[0]
+        assert "BadClass" in class_warning
+        assert "Class 'BadClass' cannot be processed" in class_warning
+
+        # Verify the source is returned unchanged since no classes can be migrated
+        assert result == source.strip()
+
+    def test_enhanced_error_reporting_for_properties(self, caplog):
+        """Test that detailed error messages are logged for properties that cannot be migrated."""
+        source = """
+from dissolve import replace_me
+
+class TestClass:
+    @replace_me()
+    @property
+    def complex_prop(self):
+        # This property cannot be migrated because it has multiple statements
+        x = self.value + 1
+        return x
+
+obj = TestClass()
+result = obj.complex_prop
+"""
+        with caplog.at_level(logging.WARNING):
+            result = migrate_source(source.strip())
+
+        # Verify that warning messages are logged
+        warning_messages = [
+            record.message for record in caplog.records if record.levelname == "WARNING"
+        ]
+
+        # Check that we got warnings
+        assert len(warning_messages) == 1
+
+        # Check that the warning contains detailed reason and specifies it's a property
+        prop_warning = warning_messages[0]
+        assert "complex_prop" in prop_warning
+        assert "Property 'complex_prop' cannot be processed" in prop_warning
+        assert "Function body is too complex to inline" in prop_warning
+
+        # Verify the source is returned unchanged since no properties can be migrated
+        assert result == source.strip()
+
+    def test_enhanced_error_reporting_for_class_methods(self, caplog):
+        """Test that detailed error messages are logged for class methods that cannot be migrated."""
+        source = """
+from dissolve import replace_me
+
+class TestClass:
+    @replace_me()
+    @classmethod
+    def complex_classmethod(cls, x):
+        # This classmethod cannot be migrated because it has multiple statements
+        y = x + 1
+        return y
+
+result = TestClass.complex_classmethod(5)
+"""
+        with caplog.at_level(logging.WARNING):
+            result = migrate_source(source.strip())
+
+        # Verify that warning messages are logged
+        warning_messages = [
+            record.message for record in caplog.records if record.levelname == "WARNING"
+        ]
+
+        # Check that we got warnings
+        assert len(warning_messages) == 1
+
+        # Check that the warning contains detailed reason and specifies it's a class method
+        method_warning = warning_messages[0]
+        assert "complex_classmethod" in method_warning
+        assert (
+            "Class method 'complex_classmethod' cannot be processed" in method_warning
+        )
+        assert "Function body is too complex to inline" in method_warning
+
+        # Verify the source is returned unchanged since no class methods can be migrated
+        assert result == source.strip()
+
+    def test_enhanced_error_reporting_for_static_methods(self, caplog):
+        """Test that detailed error messages are logged for static methods that cannot be migrated."""
+        source = """
+from dissolve import replace_me
+
+class TestClass:
+    @replace_me()
+    @staticmethod
+    def complex_staticmethod(x):
+        # This staticmethod cannot be migrated because it has multiple statements
+        y = x + 1
+        return y
+
+result = TestClass.complex_staticmethod(5)
+"""
+        with caplog.at_level(logging.WARNING):
+            result = migrate_source(source.strip())
+
+        # Verify that warning messages are logged
+        warning_messages = [
+            record.message for record in caplog.records if record.levelname == "WARNING"
+        ]
+
+        # Check that we got warnings
+        assert len(warning_messages) == 1
+
+        # Check that the warning contains detailed reason and specifies it's a static method
+        static_warning = warning_messages[0]
+        assert "complex_staticmethod" in static_warning
+        assert (
+            "Static method 'complex_staticmethod' cannot be processed" in static_warning
+        )
+        assert "Function body is too complex to inline" in static_warning
+
+        # Verify the source is returned unchanged since no static methods can be migrated
+        assert result == source.strip()
+
+    def test_enhanced_error_reporting_for_async_functions(self, caplog):
+        """Test that detailed error messages are logged for async functions that cannot be migrated."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+async def complex_async_func(x):
+    # This async function cannot be migrated because it has multiple statements
+    y = x + 1
+    return y
+
+import asyncio
+result = asyncio.run(complex_async_func(5))
+"""
+        with caplog.at_level(logging.WARNING):
+            result = migrate_source(source.strip())
+
+        # Verify that warning messages are logged
+        warning_messages = [
+            record.message for record in caplog.records if record.levelname == "WARNING"
+        ]
+
+        # Check that we got warnings
+        assert len(warning_messages) == 1
+
+        # Check that the warning contains detailed reason and specifies it's an async function
+        async_warning = warning_messages[0]
+        assert "complex_async_func" in async_warning
+        assert (
+            "Async function 'complex_async_func' cannot be processed" in async_warning
+        )
+        assert "Function body is too complex to inline" in async_warning
+
+        # Verify the source is returned unchanged since no async functions can be migrated
+        assert result == source.strip()
+
+    def test_enhanced_error_reporting_comprehensive(self, caplog):
+        """Test error reporting for multiple construct types in a single file."""
+        source = """
+from dissolve import replace_me
+
+@replace_me()
+def complex_func(x):
+    # Multiple statements
+    y = x + 1
+    return y
+
+@replace_me()
+class BadClass:
+    # No __init__ method
+    def some_method(self):
+        return "hello"
+
+class TestClass:
+    @replace_me()
+    @property
+    def complex_prop(self):
+        # Multiple statements
+        x = self.value + 1
+        return x
+
+    @replace_me()
+    @classmethod
+    def complex_classmethod(cls, x):
+        # Multiple statements
+        y = x + 1
+        return y
+
+    @replace_me()
+    @staticmethod
+    def complex_staticmethod(x):
+        # Multiple statements
+        y = x + 1
+        return y
+
+@replace_me()
+async def complex_async_func(x):
+    # Multiple statements
+    y = x + 1
+    return y
+
+# Usage
+result1 = complex_func(5)
+result2 = BadClass()
+obj = TestClass()
+result3 = obj.complex_prop
+result4 = TestClass.complex_classmethod(10)
+result5 = TestClass.complex_staticmethod(15)
+import asyncio
+result6 = asyncio.run(complex_async_func(20))
+"""
+        with caplog.at_level(logging.WARNING):
+            result = migrate_source(source.strip())
+
+        # Verify that warning messages are logged for all construct types
+        warning_messages = [
+            record.message for record in caplog.records if record.levelname == "WARNING"
+        ]
+
+        # Should have 6 warnings (one for each construct type)
+        assert len(warning_messages) == 6
+
+        # Verify each construct type gets the appropriate label
+        warning_text = " ".join(warning_messages)
+        assert "Function 'complex_func' cannot be processed" in warning_text
+        assert "Class 'BadClass' cannot be processed" in warning_text
+        assert "Property 'complex_prop' cannot be processed" in warning_text
+        assert "Class method 'complex_classmethod' cannot be processed" in warning_text
+        assert (
+            "Static method 'complex_staticmethod' cannot be processed" in warning_text
+        )
+        assert "Async function 'complex_async_func' cannot be processed" in warning_text
+
+        # Verify the source is returned unchanged since nothing can be migrated
         assert result == source.strip()
 
 
