@@ -36,6 +36,7 @@ class ReplaceInfo:
         is_property: Whether this is a property (attribute access) or a callable.
         is_classmethod: Whether this is a class method.
         is_staticmethod: Whether this is a static method.
+        is_async: Whether this is an async function.
     """
 
     def __init__(
@@ -45,12 +46,14 @@ class ReplaceInfo:
         is_property: bool = False,
         is_classmethod: bool = False,
         is_staticmethod: bool = False,
+        is_async: bool = False,
     ) -> None:
         self.old_name = old_name
         self.replacement_expr = replacement_expr
         self.is_property = is_property
         self.is_classmethod = is_classmethod
         self.is_staticmethod = is_staticmethod
+        self.is_async = is_async
 
 
 class UnreplaceableNode:
@@ -119,6 +122,13 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
             for d in self._current_decorators
         )
 
+        # Check if this is an async function
+        is_async = (
+            isinstance(original_node, cst.FunctionDef)
+            and hasattr(original_node, "asynchronous")
+            and original_node.asynchronous is not None
+        )
+
         # Check for @replace_me
         has_replace_me = any(
             self._is_replace_me_decorator(d) for d in self._current_decorators
@@ -134,6 +144,7 @@ class DeprecatedFunctionCollector(cst.CSTVisitor):
                     is_property=is_property,
                     is_classmethod=is_classmethod,
                     is_staticmethod=is_staticmethod,
+                    is_async=is_async,
                 )
             except ReplacementExtractionError as e:
                 self.unreplaceable[func_name] = UnreplaceableNode(
