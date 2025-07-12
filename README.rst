@@ -231,9 +231,11 @@ Supported objects
 The `replace_me` decorator can currently be applied to:
 
 - Functions
-- Async functions
-- Methods
-- Properties
+- Async functions  
+- Instance methods
+- Class methods (``@classmethod``)
+- Static methods (``@staticmethod``)
+- Properties (``@property``)
 
 In the future, support for other types of objects may be added:
 
@@ -270,6 +272,50 @@ When called, this will emit:
    <stdin>:1: DeprecationWarning: <function old_fetch_data at 0x...> has been deprecated since 3.0.0; use 'await new_fetch_data('https://api.example.com', timeout=30)' instead
 
 The replacement expression correctly preserves the ``await`` keyword for async calls.
+
+
+Class Methods and Static Methods
+--------------------------------
+
+Class methods and static methods are fully supported. The ``@replace_me`` decorator
+can be combined with ``@classmethod`` and ``@staticmethod`` decorators:
+
+.. code-block:: python
+
+   from dissolve import replace_me
+
+   class DataProcessor:
+       @classmethod
+       @replace_me(since="2.0.0")
+       def old_process_data(cls, data):
+           return cls.new_process_data(data.strip().upper())
+       
+       @classmethod
+       def new_process_data(cls, processed_data):
+           return f"Processed: {processed_data}"
+
+       @staticmethod
+       @replace_me(since="2.0.0")
+       def old_utility_func(value):
+           return new_utility_func(value * 10)
+
+When called, these will emit appropriate deprecation warnings:
+
+.. code-block:: console
+
+   >>> DataProcessor.old_process_data("  hello  ")
+   <stdin>:1: DeprecationWarning: <function DataProcessor.old_process_data at 0x...> has been deprecated since 2.0.0; use 'DataProcessor.new_process_data('  hello  '.strip().upper())' instead
+
+   >>> DataProcessor.old_utility_func(5)
+   <stdin>:1: DeprecationWarning: <function DataProcessor.old_utility_func at 0x...> has been deprecated since 2.0.0; use 'new_utility_func(5 * 10)' instead
+
+The migration tool will correctly replace these calls:
+
+.. code-block:: console
+
+   $ dissolve migrate --write myproject.py
+   # DataProcessor.old_process_data("test") becomes:
+   # DataProcessor.new_process_data("test".strip().upper())
 
 
 Optional Dependency Usage
