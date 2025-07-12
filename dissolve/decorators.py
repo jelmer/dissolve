@@ -108,14 +108,14 @@ def replace_me(
     from .ast_utils import create_ast_from_value, substitute_parameters
 
     def function_decorator(callable: F) -> F:
-        def decorated_function(*args: Any, **kwargs: Any) -> Any:
+        def emit_warning(callable, args, kwargs):
             # Get the source code of the function
             source = inspect.getsource(callable)
             # Parse to extract the function body
             tree = ast.parse(textwrap.dedent(source))
             func_def = tree.body[0]
 
-            if isinstance(func_def, ast.FunctionDef):
+            if isinstance(func_def, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 stmts = [
                     expr
                     for expr in func_def.body
@@ -136,7 +136,9 @@ def replace_me(
                     # Build argument mapping
                     arg_map: dict[str, Any] = {}
                     func_args = (
-                        func_def.args if isinstance(func_def, ast.FunctionDef) else None
+                        func_def.args
+                        if isinstance(func_def, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        else None
                     )
 
                     # Map positional arguments
@@ -197,10 +199,22 @@ def replace_me(
                     w = DeprecationWarning(
                         f"{callable.__name__} has been deprecated. Run 'dissolve migrate' to update your code automatically."
                     )
-            warnings.warn(w, stacklevel=2)
+            warnings.warn(w, stacklevel=3)
 
-            return callable(*args, **kwargs)
+        # Check if the callable is an async function
+        if inspect.iscoroutinefunction(callable):
 
-        return decorated_function  # type: ignore[return-value]
+            async def async_decorated_function(*args: Any, **kwargs: Any) -> Any:
+                emit_warning(callable, args, kwargs)
+                return await callable(*args, **kwargs)
+
+            return async_decorated_function  # type: ignore[return-value]
+        else:
+
+            def decorated_function(*args: Any, **kwargs: Any) -> Any:
+                emit_warning(callable, args, kwargs)
+                return callable(*args, **kwargs)
+
+            return decorated_function  # type: ignore[return-value]
 
     return function_decorator
