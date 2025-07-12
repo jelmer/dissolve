@@ -32,6 +32,7 @@ Example:
     suggesting to use `new_api(5, 10, default=True)` instead.
 """
 
+import functools
 from typing import Any, Callable, Optional, TypeVar, Union, cast
 
 # Type variable for preserving function signatures
@@ -108,6 +109,20 @@ def replace_me(
     from .ast_utils import create_ast_from_value, substitute_parameters
 
     def function_decorator(callable: F) -> F:
+        # Generate deprecation notice
+        deprecation_notice = ".. deprecated::"
+        if since:
+            deprecation_notice += f" {since}"
+        deprecation_notice += "\n   This function is deprecated."
+        if remove_in:
+            deprecation_notice += f" It will be removed in version {remove_in}."
+
+        # Update the docstring with deprecation information
+        if callable.__doc__:
+            callable.__doc__ += "\n\n" + deprecation_notice
+        else:
+            callable.__doc__ = deprecation_notice
+
         def emit_warning(callable, args, kwargs):
             # Get the source code of the function
             source = inspect.getsource(callable)
@@ -216,6 +231,7 @@ def replace_me(
         # Check if the callable is an async function
         elif inspect.iscoroutinefunction(callable):
 
+            @functools.wraps(callable)
             async def async_decorated_function(*args: Any, **kwargs: Any) -> Any:
                 emit_warning(callable, args, kwargs)
                 return await callable(*args, **kwargs)
@@ -223,6 +239,7 @@ def replace_me(
             return async_decorated_function  # type: ignore[return-value]
         else:
 
+            @functools.wraps(callable)
             def decorated_function(*args: Any, **kwargs: Any) -> Any:
                 emit_warning(callable, args, kwargs)
                 return callable(*args, **kwargs)
