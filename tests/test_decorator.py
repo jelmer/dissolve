@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+import asyncio
+
 import pytest
 
 from dissolve import replace_me
@@ -109,3 +111,73 @@ def test_deprecation_message_for_non_analyzable_function():
     warning_msg = str(warning_info.list[0].message)
     assert "dissolve migrate" in warning_msg
     assert "update your code automatically" in warning_msg
+
+
+def test_async_replace_me():
+    """Test @replace_me decorator on async functions."""
+
+    async def new_async_api(x):
+        """New async API."""
+        return x * 2
+
+    @replace_me(since="1.0.0")
+    async def old_async_api(x):
+        """Old async API that should be replaced."""
+        return await new_async_api(x + 1)
+
+    async def run_test():
+        with pytest.deprecated_call() as warning_info:
+            result = await old_async_api(10)
+
+        assert result == 22  # (10 + 1) * 2
+        warning_msg = str(warning_info.list[0].message)
+        assert "has been deprecated since 1.0.0" in warning_msg
+        assert "use 'await new_async_api(10 + 1)' instead" in warning_msg
+
+    asyncio.run(run_test())
+
+
+def test_async_replace_me_with_args():
+    """Test async decorator with multiple arguments."""
+
+    async def new_process(data, *, log_level="INFO"):
+        """New async process function."""
+        return f"Processing {data} with {log_level}"
+
+    @replace_me()
+    async def process_data(data, verbose=False):
+        """Old async process function."""
+        return await new_process(data, log_level="DEBUG" if verbose else "INFO")
+
+    async def run_test():
+        with pytest.deprecated_call() as warning_info:
+            result = await process_data("test_data", verbose=True)
+
+        assert result == "Processing test_data with DEBUG"
+        warning_msg = str(warning_info.list[0].message)
+        # The AST preserves the conditional expression
+        assert (
+            "use 'await new_process('test_data', log_level='DEBUG' if True else 'INFO')' instead"
+            in warning_msg
+        )
+
+    asyncio.run(run_test())
+
+
+def test_async_without_return():
+    """Test async function without a clear replacement."""
+
+    @replace_me(since="2.0.0")
+    async def old_async_void():
+        """Old async function without return."""
+        await asyncio.sleep(0.001)
+
+    async def run_test():
+        with pytest.deprecated_call() as warning_info:
+            await old_async_void()
+
+        warning_msg = str(warning_info.list[0].message)
+        assert "old_async_void has been deprecated since 2.0.0" in warning_msg
+        assert "dissolve migrate" in warning_msg
+
+    asyncio.run(run_test())
