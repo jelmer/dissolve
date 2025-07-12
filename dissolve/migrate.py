@@ -134,6 +134,19 @@ def migrate_source(
     wrapper = cst.MetadataWrapper(module)
     wrapper.visit(collector)
 
+    # Report constructs that cannot be processed
+    if collector.unreplaceable:
+        for name, unreplaceable_node in collector.unreplaceable.items():
+            construct_type = unreplaceable_node.construct_type()
+            logging.warning(
+                f"{construct_type} '{name}' cannot be processed: {unreplaceable_node.reason.value}"
+                + (
+                    f" ({unreplaceable_node.message})"
+                    if unreplaceable_node.message
+                    else ""
+                )
+            )
+
     if not collector.replacements:
         # No deprecated functions found
         return source
