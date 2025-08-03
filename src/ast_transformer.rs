@@ -10,9 +10,9 @@ pub fn transform_replacement_ast(
     provided_params: &[String],
     all_params: &[String],
 ) -> String {
-    // Create sets for faster lookup
-    let provided_set: HashSet<String> = provided_params.iter().cloned().collect();
-    let all_params_set: HashSet<String> = all_params.iter().cloned().collect();
+    // Create sets for faster lookup - use references to avoid cloning strings
+    let provided_set: HashSet<&str> = provided_params.iter().map(|s| s.as_str()).collect();
+    let all_params_set: HashSet<&str> = all_params.iter().map(|s| s.as_str()).collect();
 
     tracing::debug!(
         "AST transform input - param_map: {:?}, provided_params: {:?}, all_params: {:?}",
@@ -65,18 +65,19 @@ fn ast_to_source(expr: &Expr) -> String {
         Expr::StringLiteral(s) => {
             // Use the to_str() method and properly escape the content
             let content = s.value.to_str();
-            let escaped = content
-                .chars()
-                .map(|c| match c {
-                    '"' => "\\\"".to_string(),
-                    '\\' => "\\\\".to_string(),
-                    '\n' => "\\n".to_string(),
-                    '\r' => "\\r".to_string(),
-                    '\t' => "\\t".to_string(),
-                    c if c.is_control() => format!("\\u{{{:04x}}}", c as u32),
-                    c => c.to_string(),
-                })
-                .collect::<String>();
+            let mut escaped = String::with_capacity(content.len() * 2); // Pre-allocate with reasonable capacity
+            
+            for c in content.chars() {
+                match c {
+                    '"' => escaped.push_str("\\\""),
+                    '\\' => escaped.push_str("\\\\"),
+                    '\n' => escaped.push_str("\\n"),
+                    '\r' => escaped.push_str("\\r"),
+                    '\t' => escaped.push_str("\\t"),
+                    c if c.is_control() => escaped.push_str(&format!("\\u{{{:04x}}}", c as u32)),
+                    c => escaped.push(c),
+                }
+            }
             format!("\"{}\"", escaped)
         }
 
@@ -427,8 +428,8 @@ fn generators_to_string(generators: &[ruff_python_ast::Comprehension]) -> String
 fn transform_expr_with_all_params(
     expr: &Expr,
     param_map: &HashMap<String, String>,
-    provided_params: &HashSet<String>,
-    all_params: &HashSet<String>,
+    provided_params: &HashSet<&str>,
+    all_params: &HashSet<&str>,
 ) -> Expr {
     match expr {
         Expr::Name(name) => {

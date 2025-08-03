@@ -63,6 +63,35 @@ impl ParameterInfo {
             is_kwonly: false,
         }
     }
+
+    /// Create from a string slice to avoid unnecessary allocations when possible
+    pub fn from_name(name: &str) -> Self {
+        Self::new(name.to_string())
+    }
+
+    /// Create a vararg parameter (*args)
+    pub fn vararg(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            has_default: false,
+            default_value: None,
+            is_vararg: true,
+            is_kwarg: false,
+            is_kwonly: false,
+        }
+    }
+
+    /// Create a kwarg parameter (**kwargs)
+    pub fn kwarg(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            has_default: false,
+            default_value: None,
+            is_vararg: false,
+            is_kwarg: true,
+            is_kwonly: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +120,32 @@ impl ReplaceInfo {
             remove_in: None,
             message: None,
         }
+    }
+
+    /// Create from string slices to avoid unnecessary allocations when possible
+    pub fn from_strs(old_name: &str, replacement_expr: &str, construct_type: ConstructType) -> Self {
+        Self::new(old_name.to_string(), replacement_expr.to_string(), construct_type)
+    }
+
+    /// Builder pattern for setting optional fields
+    pub fn with_since(mut self, since: &str) -> Self {
+        self.since = Some(since.to_string());
+        self
+    }
+
+    pub fn with_remove_in(mut self, remove_in: &str) -> Self {
+        self.remove_in = Some(remove_in.to_string());
+        self
+    }
+
+    pub fn with_message(mut self, message: &str) -> Self {
+        self.message = Some(message.to_string());
+        self
+    }
+
+    pub fn with_parameters(mut self, parameters: Vec<ParameterInfo>) -> Self {
+        self.parameters = parameters;
+        self
     }
 }
 

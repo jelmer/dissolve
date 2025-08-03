@@ -97,17 +97,20 @@ impl RuffDeprecatedFunctionCollector {
             }
             Expr::Attribute(attr) => {
                 // Handle nested attributes like a.b.c
-                let mut parts = vec![attr.attr.to_string()];
+                // Build the string from right to left to avoid reverse
+                let mut result = attr.attr.to_string();
                 let mut current = &*attr.value;
 
                 loop {
                     match current {
                         Expr::Name(name) => {
-                            parts.push(name.id.to_string());
+                            // Prepend the final name
+                            result = format!("{}.{}", name.id, result);
                             break;
                         }
                         Expr::Attribute(inner_attr) => {
-                            parts.push(inner_attr.attr.to_string());
+                            // Prepend this attribute
+                            result = format!("{}.{}", inner_attr.attr, result);
                             current = &*inner_attr.value;
                         }
                         _ => {
@@ -117,9 +120,7 @@ impl RuffDeprecatedFunctionCollector {
                     }
                 }
 
-                // Reverse to get the correct order
-                parts.reverse();
-                parts.join(".")
+                result
             }
             _ => {
                 // Can't handle this expression type

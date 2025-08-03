@@ -51,15 +51,21 @@ impl DependencyCollectionResult {
 
     /// Merge another result into this one
     pub fn update(&mut self, other: &DependencyCollectionResult) {
-        self.replacements.extend(other.replacements.clone());
-        self.inheritance_map.extend(other.inheritance_map.clone());
+        // Avoid cloning by using references where possible and only clone when necessary
+        for (key, value) in &other.replacements {
+            self.replacements.insert(key.clone(), value.clone());
+        }
+        
+        for (key, value) in &other.inheritance_map {
+            self.inheritance_map.insert(key.clone(), value.clone());
+        }
 
         // Merge class_methods, combining sets for same classes
         for (class_name, methods) in &other.class_methods {
             self.class_methods
                 .entry(class_name.clone())
                 .or_default()
-                .extend(methods.clone());
+                .extend(methods.iter().cloned());
         }
     }
 }
@@ -91,14 +97,15 @@ fn get_inheritance_chain_for_class(
     let mut processed = HashSet::new();
 
     while let Some(current) = to_process.pop() {
-        if processed.contains(&current) {
+        if !processed.insert(current.clone()) {
+            // Already processed, skip
             continue;
         }
-        processed.insert(current.clone());
 
         if let Some(bases) = inheritance_map.get(&current) {
-            chain.extend(bases.clone());
-            to_process.extend(bases.clone());
+            // Use iterators to avoid unnecessary clones
+            chain.extend(bases.iter().cloned());
+            to_process.extend(bases.iter().cloned());
         }
     }
 
@@ -380,9 +387,10 @@ fn collect_deprecated_from_dependencies_recursive(
                 module_result.replacements.len(),
                 module_result.inheritance_map
             );
-            result
-                .inheritance_map
-                .extend(module_result.inheritance_map.clone());
+            // Extend the inheritance map efficiently
+            for (key, value) in &module_result.inheritance_map {
+                result.inheritance_map.insert(key.clone(), value.clone());
+            }
 
             // Collect all imported names
             let mut all_imported_names = HashSet::new();
