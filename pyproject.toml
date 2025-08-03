@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dissolve"
 description = "Automatically replace use of deprecated APIs"
-readme = "README.rst"
+readme = "README.md"
 authors = [{name = "Jelmer Vernooĳ", email = "jelmer@jelmer.uk"}]
 license = {text = "Apachev2 or later"}
 classifiers = [
@@ -25,8 +25,6 @@ requires-python = ">=3.9"
 dependencies = ["packaging"]
 dynamic = ["version"]
 
-[project.scripts]
-dissolve = "dissolve.__main__:main"
 
 [tool.setuptools]
 include-package-data = true
@@ -46,8 +44,7 @@ dev = [
     "ruff==0.11.11",
     "mypy==1.15.0"
 ]
-migrate = ["libcst>=1.0.0", "libcst-mypy>=0.1.0"]
-rust = ["dissolve-rs"]
+tool = []  # The Rust binary will be built and installed by setup.py
 
 [tool.ruff.lint]
 select = [
