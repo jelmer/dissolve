@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-CLI wrapper for dissolve that either runs the Rust binary or provides installation instructions.
-"""
+"""CLI wrapper for dissolve that either runs the Rust binary or provides installation instructions."""
 
 import shutil
 import subprocess
@@ -17,28 +15,29 @@ def find_dissolve_binary():
         # Make sure it's actually the Rust binary, not this Python script
         try:
             result = subprocess.run(
-                [binary_path, "--version"], 
-                capture_output=True, 
-                text=True, 
-                timeout=5
+                [binary_path, "--version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0 and "dissolve" in result.stdout.lower():
                 return binary_path
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+        except (
+            subprocess.TimeoutExpired,
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+        ):
             pass
-    
+
     # Check common cargo install locations
     home = Path.home()
     cargo_bin = home / ".cargo" / "bin" / "dissolve"
     if cargo_bin.exists():
         return str(cargo_bin)
-    
+
     # Check if we're in development and there's a local binary
     current_dir = Path(__file__).parent.parent
     local_binary = current_dir / "target" / "release" / "dissolve"
     if local_binary.exists():
         return str(local_binary)
-    
+
     return None
 
 
@@ -61,11 +60,11 @@ def print_installation_instructions():
 def main():
     """Main entry point that either runs the Rust binary or shows installation instructions."""
     binary_path = find_dissolve_binary()
-    
+
     if binary_path:
         # Run the Rust binary with all arguments passed through
         try:
-            result = subprocess.run([binary_path] + sys.argv[1:])
+            result = subprocess.run([binary_path, *sys.argv[1:]])
             sys.exit(result.returncode)
         except KeyboardInterrupt:
             sys.exit(130)  # Standard exit code for SIGINT
@@ -78,7 +77,7 @@ def main():
             # User tried to run a command, so show error first
             print("Error: dissolve Rust binary not found.", file=sys.stderr)
             print()
-        
+
         print_installation_instructions()
         sys.exit(1)
 
