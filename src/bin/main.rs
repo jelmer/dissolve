@@ -474,7 +474,10 @@ fn main() -> Result<()> {
             let files = expand_paths(&paths, false)?; // TODO: Handle module mode
 
             // Collect all deprecated functions from specified files
-            let mut all_deprecated: std::collections::HashMap<String, dissolve_python::ReplaceInfo> = std::collections::HashMap::new();
+            let mut all_deprecated: std::collections::HashMap<
+                String,
+                dissolve_python::ReplaceInfo,
+            > = std::collections::HashMap::new();
             let mut total_files = 0;
 
             for filepath in &files {

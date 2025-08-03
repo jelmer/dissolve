@@ -123,8 +123,16 @@ impl ReplaceInfo {
     }
 
     /// Create from string slices to avoid unnecessary allocations when possible
-    pub fn from_strs(old_name: &str, replacement_expr: &str, construct_type: ConstructType) -> Self {
-        Self::new(old_name.to_string(), replacement_expr.to_string(), construct_type)
+    pub fn from_strs(
+        old_name: &str,
+        replacement_expr: &str,
+        construct_type: ConstructType,
+    ) -> Self {
+        Self::new(
+            old_name.to_string(),
+            replacement_expr.to_string(),
+            construct_type,
+        )
     }
 
     /// Builder pattern for setting optional fields

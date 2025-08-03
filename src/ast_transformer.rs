@@ -66,7 +66,7 @@ fn ast_to_source(expr: &Expr) -> String {
             // Use the to_str() method and properly escape the content
             let content = s.value.to_str();
             let mut escaped = String::with_capacity(content.len() * 2); // Pre-allocate with reasonable capacity
-            
+
             for c in content.chars() {
                 match c {
                     '"' => escaped.push_str("\\\""),

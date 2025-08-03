@@ -55,7 +55,7 @@ impl DependencyCollectionResult {
         for (key, value) in &other.replacements {
             self.replacements.insert(key.clone(), value.clone());
         }
-        
+
         for (key, value) in &other.inheritance_map {
             self.inheritance_map.insert(key.clone(), value.clone());
         }

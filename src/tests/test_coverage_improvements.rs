@@ -286,3 +286,254 @@ def old_function(arg1, arg2, arg3):
         .replacement_expr
         .contains("test_module.new_function"));
 }
+
+// Additional error path tests for better mutation coverage
+
+#[test]
+fn test_function_with_multiple_statements_error() {
+    // Test that functions with multiple statements are rejected
+    let source = r#"
+from dissolve import replace_me
+
+@replace_me
+def bad_function():
+    x = 1
+    return x + 1
+"#;
+
+    let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
+    let result = collector.collect_from_source(source.to_string()).unwrap();
+
+    // Should be in unreplaceable due to multiple statements
+    assert!(result
+        .unreplaceable
+        .contains_key("test_module.bad_function"));
+    let unreplaceable = &result.unreplaceable["test_module.bad_function"];
+    assert_eq!(
+        unreplaceable.reason,
+        crate::core::ReplacementFailureReason::MultipleStatements
+    );
+}
+
+#[test]
+fn test_function_with_no_return_statement_error() {
+    // Test that functions without return statements are rejected
+    let source = r#"
+from dissolve import replace_me
+
+@replace_me
+def bad_function():
+    print("hello")
+"#;
+
+    let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
+    let result = collector.collect_from_source(source.to_string()).unwrap();
+
+    // Should be in unreplaceable due to no return statement
+    assert!(result
+        .unreplaceable
+        .contains_key("test_module.bad_function"));
+    let unreplaceable = &result.unreplaceable["test_module.bad_function"];
+    assert_eq!(
+        unreplaceable.reason,
+        crate::core::ReplacementFailureReason::NoReturnStatement
+    );
+}
+
+#[test]
+fn test_function_with_empty_return_error() {
+    // Test that functions with empty return statements are rejected
+    let source = r#"
+from dissolve import replace_me
+
+@replace_me
+def bad_function():
+    return
+"#;
+
+    let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
+    let result = collector.collect_from_source(source.to_string()).unwrap();
+
+    // Should be in unreplaceable due to empty return
+    assert!(result
+        .unreplaceable
+        .contains_key("test_module.bad_function"));
+    let unreplaceable = &result.unreplaceable["test_module.bad_function"];
+    assert_eq!(
+        unreplaceable.reason,
+        crate::core::ReplacementFailureReason::NoReturnStatement
+    );
+}
+
+#[test]
+fn test_class_with_no_init_method_error() {
+    // Test that classes without __init__ methods are rejected
+    let source = r#"
+from dissolve import replace_me
+
+@replace_me
+class BadClass:
+    def some_method(self):
+        pass
+"#;
+
+    let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
+    let result = collector.collect_from_source(source.to_string()).unwrap();
+
+    // Should be in unreplaceable due to no __init__ method
+    assert!(result.unreplaceable.contains_key("test_module.BadClass"));
+    let unreplaceable = &result.unreplaceable["test_module.BadClass"];
+    assert_eq!(
+        unreplaceable.reason,
+        crate::core::ReplacementFailureReason::NoInitMethod
+    );
+}
+
+#[test]
+fn test_function_with_only_pass_statements() {
+    // Test that functions with only pass statements result in empty replacement
+    let source = r#"
+from dissolve import replace_me
+
+@replace_me
+def remove_this():
+    pass
+"#;
+
+    let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
+    let result = collector.collect_from_source(source.to_string()).unwrap();
+
+    // Should have empty replacement expression
+    assert!(result.replacements.contains_key("test_module.remove_this"));
+    let replacement = &result.replacements["test_module.remove_this"];
+    assert_eq!(replacement.replacement_expr, "");
+}
+
+#[test]
+fn test_function_with_docstring_and_pass() {
+    // Test that functions with docstring and pass statements result in empty replacement
+    let source = r#"
+from dissolve import replace_me
+
+@replace_me
+def remove_this():
+    """This function will be removed."""
+    pass
+"#;
+
+    let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
+    let result = collector.collect_from_source(source.to_string()).unwrap();
+
+    // Should have empty replacement expression
+    assert!(result.replacements.contains_key("test_module.remove_this"));
+    let replacement = &result.replacements["test_module.remove_this"];
+    assert_eq!(replacement.replacement_expr, "");
+}
+
+#[test]
+fn test_complex_parameter_patterns() {
+    // Test functions with complex parameter patterns
+    let source = r#"
+from dissolve import replace_me
+
+@replace_me
+def complex_func(a, b=None, *args, c, d=42, **kwargs):
+    return new_func(a, b, *args, c=c, d=d, **kwargs)
+"#;
+
+    let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
+    let result = collector.collect_from_source(source.to_string()).unwrap();
+
+    assert!(result.replacements.contains_key("test_module.complex_func"));
+    let replacement = &result.replacements["test_module.complex_func"];
+
+    // Check that all parameter types are properly detected
+    assert_eq!(replacement.parameters.len(), 6);
+
+    // Check parameter flags
+    let param_a = replacement
+        .parameters
+        .iter()
+        .find(|p| p.name == "a")
+        .unwrap();
+    assert!(!param_a.has_default && !param_a.is_vararg && !param_a.is_kwarg && !param_a.is_kwonly);
+
+    let param_b = replacement
+        .parameters
+        .iter()
+        .find(|p| p.name == "b")
+        .unwrap();
+    assert!(param_b.has_default && !param_b.is_vararg && !param_b.is_kwarg && !param_b.is_kwonly);
+
+    let param_args = replacement
+        .parameters
+        .iter()
+        .find(|p| p.name == "args")
+        .unwrap();
+    assert!(
+        !param_args.has_default
+            && param_args.is_vararg
+            && !param_args.is_kwarg
+            && !param_args.is_kwonly
+    );
+
+    let param_c = replacement
+        .parameters
+        .iter()
+        .find(|p| p.name == "c")
+        .unwrap();
+    assert!(!param_c.has_default && !param_c.is_vararg && !param_c.is_kwarg && param_c.is_kwonly);
+
+    let param_kwargs = replacement
+        .parameters
+        .iter()
+        .find(|p| p.name == "kwargs")
+        .unwrap();
+    assert!(
+        !param_kwargs.has_default
+            && !param_kwargs.is_vararg
+            && param_kwargs.is_kwarg
+            && !param_kwargs.is_kwonly
+    );
+}
+
+#[test]
+fn test_nested_class_collection() {
+    // Test more complex nested class scenarios
+    let source = r#"
+from dissolve import replace_me
+
+class Outer:
+    class Middle:
+        class Inner:
+            @replace_me
+            def deep_method(self):
+                return self.new_deep_method()
+"#;
+
+    let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
+    let result = collector.collect_from_source(source.to_string()).unwrap();
+
+    assert!(result
+        .replacements
+        .contains_key("test_module.Outer.Middle.Inner.deep_method"));
+    let replacement = &result.replacements["test_module.Outer.Middle.Inner.deep_method"];
+    assert_eq!(replacement.replacement_expr, "{self}.new_deep_method()");
+}
+
+#[test]
+fn test_dependency_collector_edge_cases() {
+    use crate::dependency_collector::{might_contain_replace_me, resolve_module_path};
+
+    // Test edge cases in module path resolution
+    assert_eq!(
+        resolve_module_path(".", Some("package.module")),
+        Some("package".to_string())
+    );
+    assert_eq!(resolve_module_path("..", Some("a")), None); // Goes too far up
+
+    // Test edge cases in replace_me detection
+    assert!(might_contain_replace_me("# @replace_me in comment"));
+    assert!(might_contain_replace_me("'@replace_me' in string"));
+    assert!(!might_contain_replace_me("# just a comment"));
+}
