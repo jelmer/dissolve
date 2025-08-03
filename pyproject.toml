@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.2"]
+requires = ["setuptools>=61.2", "maturin>=1.0,<2.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -29,10 +29,13 @@ dynamic = ["version"]
 dissolve = "dissolve.__main__:main"
 
 [tool.setuptools]
-include-package-data = false
+include-package-data = true
 
 [tool.setuptools.packages]
 find = {namespaces = false}
+
+[tool.setuptools.package-data]
+dissolve = ["py.typed"]
 
 [tool.setuptools.dynamic]
 version = {attr = "dissolve.__version__"}
@@ -43,7 +46,8 @@ dev = [
     "ruff==0.11.11",
     "mypy==1.15.0"
 ]
-migrate = ["libcst>=1.0.0"]
+migrate = ["libcst>=1.0.0", "libcst-mypy>=0.1.0"]
+rust = ["dissolve-rs"]
 
 [tool.ruff.lint]
 select = [
@@ -82,5 +86,22 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_reexport = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "dissolve.tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = false
+disallow_untyped_calls = false
+no_strict_optional = true
 
 
