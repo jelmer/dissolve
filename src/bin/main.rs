@@ -211,32 +211,25 @@ fn visit_python_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 
 /// Expand a list of paths to include directories and Python object paths
 fn expand_paths(paths: &[String], as_module: bool) -> Result<Vec<PathBuf>> {
-    let mut expanded = Vec::new();
+    use indexmap::IndexSet;
+    
+    let mut expanded = IndexSet::new();
     for path in paths {
         expanded.extend(discover_python_files(path, as_module)?);
     }
 
-    // Remove duplicates while preserving order
-    let mut seen = std::collections::HashSet::new();
-    let mut result = Vec::new();
-    for file_path in expanded {
-        if seen.insert(file_path.clone()) {
-            result.push(file_path);
-        }
-    }
-
-    Ok(result)
+    Ok(expanded.into_iter().collect())
 }
 
 /// Detect the module name from a file path
 fn detect_module_name(file_path: &Path) -> String {
-    let path = file_path;
-    let mut current_dir = path.parent().unwrap_or(Path::new("."));
-    let mut module_parts = vec![];
+    let mut current_dir = file_path.parent().unwrap_or(Path::new("."));
+    let mut module_parts = Vec::new();
 
-    if path.file_stem().is_some_and(|stem| stem != "__init__") {
-        if let Some(stem) = path.file_stem() {
-            module_parts.push(stem.to_string_lossy().to_string());
+    // Add file stem if it's not __init__
+    if let Some(stem) = file_path.file_stem() {
+        if stem != "__init__" {
+            module_parts.push(stem.to_string_lossy());
         }
     }
 
@@ -249,7 +242,7 @@ fn detect_module_name(file_path: &Path) -> String {
 
         // This directory is a package
         if let Some(package_name) = current_dir.file_name() {
-            module_parts.insert(0, package_name.to_string_lossy().to_string());
+            module_parts.insert(0, package_name.to_string_lossy());
         }
 
         match current_dir.parent() {
@@ -263,8 +256,8 @@ fn detect_module_name(file_path: &Path) -> String {
         module_parts.join(".")
     } else {
         // Fallback to just the filename stem
-        path.file_stem()
-            .map(|s| s.to_string_lossy().to_string())
+        file_path.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default()
     }
 }
@@ -458,7 +451,7 @@ fn main() -> Result<()> {
                 let result = check_file(
                     &source,
                     &module_name,
-                    filepath.to_string_lossy().to_string(),
+                    filepath,
                 )?;
                 if result.success {
                     if !result.checked_functions.is_empty() {
@@ -634,7 +627,7 @@ fn migrate_file_content(
     let modified_source = migrate_ruff::migrate_file(
         source,
         module_name,
-        file_path.to_string_lossy().to_string(),
+        file_path,
         type_context,
         all_replacements,
         dep_result.inheritance_map,
@@ -707,7 +700,7 @@ fn interactive_migrate_file_content(
     let modified_source = migrate_ruff::migrate_file_interactive(
         source,
         module_name,
-        file_path.to_string_lossy().to_string(),
+        file_path,
         type_context,
         all_replacements,
         dep_result.inheritance_map,

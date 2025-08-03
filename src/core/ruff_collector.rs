@@ -23,10 +23,11 @@ use ruff_python_ast::{
 use ruff_python_parser::{parse, Mode};
 use ruff_text_size::Ranged;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 pub struct RuffDeprecatedFunctionCollector {
     module_name: String,
-    _file_path: Option<String>,
+    _file_path: Option<PathBuf>,
     replacements: HashMap<String, ReplaceInfo>,
     unreplaceable: HashMap<String, UnreplaceableNode>,
     imports: Vec<ImportInfo>,
@@ -38,10 +39,10 @@ pub struct RuffDeprecatedFunctionCollector {
 }
 
 impl RuffDeprecatedFunctionCollector {
-    pub fn new(module_name: String, file_path: Option<String>) -> Self {
+    pub fn new(module_name: String, file_path: Option<&Path>) -> Self {
         Self {
             module_name,
-            _file_path: file_path,
+            _file_path: file_path.map(Path::to_path_buf),
             replacements: HashMap::new(),
             unreplaceable: HashMap::new(),
             imports: Vec::new(),
@@ -55,8 +56,8 @@ impl RuffDeprecatedFunctionCollector {
 
     /// Collect from source string
     pub fn collect_from_source(mut self, source: String) -> Result<CollectorResult> {
-        self.source = source.clone();
-        let parsed = parse(&source, Mode::Module)?;
+        self.source = source;
+        let parsed = parse(&self.source, Mode::Module)?;
 
         match parsed.into_syntax() {
             Mod::Module(module) => {
@@ -80,9 +81,10 @@ impl RuffDeprecatedFunctionCollector {
 
     /// Build the full object path including module and class names
     fn build_full_path(&self, name: &str) -> String {
-        let mut parts = vec![self.module_name.clone()];
-        parts.extend(self.class_stack.clone());
-        parts.push(name.to_string());
+        let mut parts = Vec::with_capacity(2 + self.class_stack.len());
+        parts.push(self.module_name.as_str());
+        parts.extend(self.class_stack.iter().map(|s| s.as_str()));
+        parts.push(name);
         parts.join(".")
     }
 

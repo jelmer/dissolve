@@ -16,6 +16,7 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::core::{ReplaceInfo, RuffDeprecatedFunctionCollector};
 use crate::ruff_parser::PythonModule;
@@ -27,14 +28,14 @@ use ruff_python_ast::{visitor::Visitor, Mod};
 pub fn migrate_file(
     source: &str,
     module_name: &str,
-    file_path: String,
+    file_path: &Path,
     type_introspection_context: &mut TypeIntrospectionContext,
     mut replacements: HashMap<String, ReplaceInfo>,
     dependency_inheritance_map: HashMap<String, Vec<String>>,
 ) -> Result<String> {
     // Always collect from source to get inheritance information
     let collector =
-        RuffDeprecatedFunctionCollector::new(module_name.to_string(), Some(file_path.clone()));
+        RuffDeprecatedFunctionCollector::new(module_name.to_string(), Some(file_path));
     let collector_result = collector.collect_from_source(source.to_string())?;
 
     // Merge provided replacements with ones collected from the source file
@@ -55,7 +56,7 @@ pub fn migrate_file(
         replacements,
         &parsed_module,
         type_introspection_context,
-        file_path.clone(),
+        file_path.to_string_lossy().into_owned(),
         module_name.to_string(),
         std::collections::HashSet::new(), // Not used anymore
         source.to_string(),
@@ -102,7 +103,7 @@ pub fn migrate_file(
 pub fn migrate_file_interactive(
     source: &str,
     module_name: &str,
-    file_path: String,
+    file_path: &Path,
     type_introspection_context: &mut TypeIntrospectionContext,
     replacements: HashMap<String, ReplaceInfo>,
     dependency_inheritance_map: HashMap<String, Vec<String>>,
@@ -123,7 +124,7 @@ pub fn migrate_file_interactive(
 pub fn check_file(
     source: &str,
     module_name: &str,
-    file_path: String,
+    file_path: &Path,
 ) -> Result<crate::checker::CheckResult> {
     let collector = RuffDeprecatedFunctionCollector::new(module_name.to_string(), Some(file_path));
     let result = collector.collect_from_source(source.to_string())?;
