@@ -198,7 +198,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6184e33543162437515c2e2b48714794e37845ec9851711914eec9d308f6ebe8"
 
 [[package]]
-name = "dissolve"
+name = "dissolve-python"
 version = "0.1.0"
 dependencies = [
  "anyhow",

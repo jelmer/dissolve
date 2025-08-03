@@ -29,10 +29,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use dissolve::migrate_ruff;
-use dissolve::type_introspection_context::TypeIntrospectionContext;
-use dissolve::TypeIntrospectionMethod;
-use dissolve::{
+use dissolve_python::migrate_ruff;
+use dissolve_python::type_introspection_context::TypeIntrospectionContext;
+use dissolve_python::TypeIntrospectionMethod;
+use dissolve_python::{
     check_file, collect_deprecated_from_dependencies, remove_from_file,
     RuffDeprecatedFunctionCollector,
 };
@@ -474,7 +474,7 @@ fn main() -> Result<()> {
             let files = expand_paths(&paths, false)?; // TODO: Handle module mode
 
             // Collect all deprecated functions from specified files
-            let mut all_deprecated = std::collections::HashMap::new();
+            let mut all_deprecated: std::collections::HashMap<String, dissolve_python::ReplaceInfo> = std::collections::HashMap::new();
             let mut total_files = 0;
 
             for filepath in &files {

@@ -44,8 +44,8 @@ result2 = str(1, 2)  # Too many arguments
 }
 
 #[test]
-fn test_builtin_name_not_magic_method() {
-    // Test builtins that are not in our magic method list
+fn test_len_builtin_magic_method() {
+    // Test that len() is properly migrated through __len__ magic method
     let source = r#"
 from dissolve import replace_me
 
@@ -55,7 +55,7 @@ class MyClass:
         return self.size()
 
 obj = MyClass()
-# len() is not in our supported list yet
+# len() should be migrated through __len__
 result = len(obj)
 "#;
 
@@ -75,8 +75,8 @@ result = len(obj)
     .unwrap();
     type_context.shutdown().unwrap();
 
-    // len() should not be migrated as it's not in our supported list
-    assert!(migrated.contains("result = len(obj)"));
+    // len() should be migrated through the __len__ magic method
+    assert!(migrated.contains("result = obj.size()"));
 }
 
 #[test]
