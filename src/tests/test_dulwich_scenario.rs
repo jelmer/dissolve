@@ -17,7 +17,7 @@ use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
 use crate::TypeIntrospectionMethod;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 /// Helper to create a Python module file
@@ -133,17 +133,11 @@ def simple_test():
 
     // Open relevant files so Pyright knows about them
     type_context
-        .open_file(
-            &temp_dir
-                .path()
-                .join("dulwich/__init__.py")
-                .to_string_lossy(),
-            "",
-        )
+        .open_file(&temp_dir.path().join("dulwich/__init__.py"), "")
         .unwrap();
     type_context
         .open_file(
-            &temp_dir.path().join("dulwich/repo.py").to_string_lossy(),
+            &temp_dir.path().join("dulwich/repo.py"),
             &std::fs::read_to_string(temp_dir.path().join("dulwich/repo.py")).unwrap(),
         )
         .unwrap();
@@ -152,7 +146,7 @@ def simple_test():
     let result = migrate_file(
         porcelain_source,
         "dulwich.porcelain",
-        porcelain_path.to_string_lossy().to_string(),
+        &porcelain_path,
         &mut type_context,
         dep_result.replacements,
         dep_result.inheritance_map,
@@ -245,7 +239,7 @@ def process():
     let result = migrate_file(
         source,
         "testpkg.usage",
-        file_path.to_string_lossy().to_string(),
+        &file_path,
         &mut type_context,
         dep_result.replacements,
         dep_result.inheritance_map,
@@ -330,7 +324,7 @@ def make_commits(repo_path: str, messages: List[str], author: Optional[str] = No
     let result = migrate_file(
         source,
         "repo_pkg.operations",
-        file_path.to_string_lossy().to_string(),
+        &file_path,
         &mut type_context,
         dep_result.replacements,
         dep_result.inheritance_map,

@@ -16,6 +16,8 @@ mod test_class_methods;
 #[cfg(test)]
 mod test_class_wrapper_deprecation;
 #[cfg(test)]
+mod test_coverage_improvements;
+#[cfg(test)]
 mod test_cross_module;
 #[cfg(test)]
 mod test_dependency_inheritance;
@@ -51,8 +53,6 @@ mod test_ruff_parser;
 mod test_ruff_replacements;
 #[cfg(test)]
 mod test_type_introspection_failure;
-#[cfg(test)]
-mod test_coverage_improvements;
 
 #[cfg(test)]
 pub mod test_utils {

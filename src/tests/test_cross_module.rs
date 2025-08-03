@@ -20,7 +20,7 @@ use crate::type_introspection_context::TypeIntrospectionContext;
 use crate::TypeIntrospectionMethod;
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 /// Helper to create a Python module file
@@ -102,7 +102,7 @@ def test():
     let result = migrate_file(
         user_module,
         "testpkg.user",
-        user_path.to_string_lossy().to_string(),
+        &user_path,
         &mut type_context,
         dep_result.replacements,
         dep_result.inheritance_map,
@@ -181,7 +181,7 @@ def process_with_variable():
     let result = migrate_file(
         user_module,
         "testpkg.client",
-        client_path.to_string_lossy().to_string(),
+        &client_path,
         &mut type_context,
         dep_result.replacements,
         dep_result.inheritance_map,
@@ -263,17 +263,11 @@ def create_instance():
 
     // Open the package files in Pyright so it knows about the module structure
     type_context
-        .open_file(
-            &temp_dir
-                .path()
-                .join("testpkg/__init__.py")
-                .to_string_lossy(),
-            "",
-        )
+        .open_file(&temp_dir.path().join("testpkg/__init__.py"), "")
         .unwrap();
     type_context
         .open_file(
-            &temp_dir.path().join("testpkg/factory.py").to_string_lossy(),
+            &temp_dir.path().join("testpkg/factory.py"),
             deprecated_module,
         )
         .unwrap();
@@ -282,7 +276,7 @@ def create_instance():
     let result = migrate_file(
         user_module,
         "testpkg.user",
-        user_path.to_string_lossy().to_string(),
+        &user_path,
         &mut type_context,
         dep_result.replacements,
         dep_result.inheritance_map,
@@ -351,17 +345,14 @@ def calculate():
 
     // Open the dependency file in Pyright so it knows about the Utils class
     type_context
-        .open_file(
-            &temp_dir.path().join("testpkg/utils.py").to_string_lossy(),
-            deprecated_module,
-        )
+        .open_file(&temp_dir.path().join("testpkg/utils.py"), deprecated_module)
         .unwrap();
 
     // Migrate
     let result = migrate_file(
         user_module,
         "testpkg.user",
-        user_path.to_string_lossy().to_string(),
+        &user_path,
         &mut type_context,
         dep_result.replacements,
         dep_result.inheritance_map,
@@ -430,7 +421,7 @@ def test():
     let result = migrate_file(
         user_module,
         "testpkg.user",
-        user_path.to_string_lossy().to_string(),
+        &user_path,
         &mut type_context,
         dep_result.replacements,
         dep_result.inheritance_map,
@@ -508,7 +499,7 @@ def use_resource():
     let result = migrate_file(
         user_module,
         "testpkg.user",
-        user_path.to_string_lossy().to_string(),
+        &user_path,
         &mut type_context,
         dep_result.replacements,
         dep_result.inheritance_map,
@@ -542,7 +533,7 @@ def test():
     let result = migrate_file(
         source,
         "testmodule",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         HashMap::new(),
         HashMap::new(),

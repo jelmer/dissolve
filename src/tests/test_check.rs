@@ -15,6 +15,7 @@
 #[cfg(test)]
 mod test_check_replacements {
     use crate::migrate_ruff::check_file;
+    use std::path::Path;
 
     #[test]
     fn test_valid_replacement_function() {
@@ -25,7 +26,7 @@ def old_func(x, y):
         "#;
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
-        let result = check_file(source, "test_module", test_ctx.file_path).unwrap();
+        let result = check_file(source, "test_module", Path::new(&test_ctx.file_path)).unwrap();
         assert!(result.success);
         assert_eq!(result.checked_functions, vec!["test_module.old_func"]);
         assert!(result.errors.is_empty());
@@ -40,7 +41,7 @@ def old_func(x, y):
         "#;
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
-        let result = check_file(source, "test_module", test_ctx.file_path).unwrap();
+        let result = check_file(source, "test_module", Path::new(&test_ctx.file_path)).unwrap();
         assert!(result.success);
         assert_eq!(result.checked_functions, vec!["test_module.old_func"]);
         assert!(result.errors.is_empty());
@@ -56,7 +57,7 @@ def old_func(x, y):
         "#;
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
-        let result = check_file(source, "test_module", test_ctx.file_path).unwrap();
+        let result = check_file(source, "test_module", Path::new(&test_ctx.file_path)).unwrap();
         assert!(!result.success);
         assert_eq!(result.checked_functions, vec!["test_module.old_func"]);
         assert!(!result.errors.is_empty());
@@ -71,7 +72,7 @@ def old_func(x, y):
         "#;
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
-        let result = check_file(source, "test_module", test_ctx.file_path).unwrap();
+        let result = check_file(source, "test_module", Path::new(&test_ctx.file_path)).unwrap();
         assert!(!result.success);
         assert_eq!(result.checked_functions, vec!["test_module.old_func"]);
         assert!(!result.errors.is_empty());
@@ -88,7 +89,7 @@ class MyClass:
         "#;
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
-        let result = check_file(source, "test_module", test_ctx.file_path).unwrap();
+        let result = check_file(source, "test_module", Path::new(&test_ctx.file_path)).unwrap();
         assert!(result.success);
         assert_eq!(
             result.checked_functions,
@@ -113,7 +114,7 @@ def regular_func(z):
         "#;
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
-        let result = check_file(source, "test_module", test_ctx.file_path).unwrap();
+        let result = check_file(source, "test_module", Path::new(&test_ctx.file_path)).unwrap();
         assert!(result.success);
         assert_eq!(result.checked_functions.len(), 2);
         assert!(result
@@ -134,7 +135,7 @@ def old_func(x, y
         "#;
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
-        let result = check_file(source, "test_module", test_ctx.file_path);
+        let result = check_file(source, "test_module", Path::new(&test_ctx.file_path));
         assert!(result.is_err());
     }
 
@@ -149,7 +150,7 @@ def another_func(y):
         "#;
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
-        let result = check_file(source, "test_module", test_ctx.file_path).unwrap();
+        let result = check_file(source, "test_module", Path::new(&test_ctx.file_path)).unwrap();
         assert!(result.success);
         assert!(result.checked_functions.is_empty());
         assert!(result.errors.is_empty());
@@ -166,7 +167,7 @@ class OuterClass:
         "#;
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
-        let result = check_file(source, "test_module", test_ctx.file_path).unwrap();
+        let result = check_file(source, "test_module", Path::new(&test_ctx.file_path)).unwrap();
         assert!(result.success);
         assert_eq!(
             result.checked_functions,

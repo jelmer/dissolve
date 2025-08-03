@@ -16,6 +16,7 @@ use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
 use crate::{RuffDeprecatedFunctionCollector, TypeIntrospectionMethod};
 use std::collections::HashMap;
+use std::path::Path;
 
 #[test]
 fn test_basic_classmethod_replacement() {
@@ -39,7 +40,7 @@ result = MyClass.old_class_method(10)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -75,7 +76,7 @@ result = DerivedClass.old_method(5)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -114,7 +115,7 @@ result2 = MyClass.old_method2(10)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -148,7 +149,7 @@ result = Builder.old_build("test", debug=True, verbose=False)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -193,7 +194,7 @@ result2 = Utils.old_static_util(10)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -232,7 +233,7 @@ result = await AsyncClass.old_async_class_method(10)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -267,7 +268,7 @@ result = obj.old_class_method(5)  # Called on instance
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -301,7 +302,7 @@ gen = (Converter.old_convert(x) for x in [1, 2, 3])
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -344,7 +345,7 @@ result_b = MultiClass.old_method_b(10)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),

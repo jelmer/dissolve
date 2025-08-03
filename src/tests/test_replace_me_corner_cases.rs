@@ -4,6 +4,7 @@ use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
 use crate::{RuffDeprecatedFunctionCollector, TypeIntrospectionMethod};
 use std::collections::HashMap;
+use std::path::Path;
 
 #[test]
 fn test_replace_me_on_magic_methods() {
@@ -43,7 +44,7 @@ length = len(obj)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -98,7 +99,7 @@ static_result = MyClass.old_static_method(5)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -147,7 +148,7 @@ final_result = outer_function()
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -199,7 +200,7 @@ del obj.value   # Calls deleter
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -244,7 +245,7 @@ instance = MyClass(1, 2, 3)  # Calls metaclass __call__
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -288,7 +289,7 @@ result2 = old_func_multiline_args(20)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -339,7 +340,7 @@ result2 = risky_func(20)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -390,7 +391,7 @@ result3 = func_ref(200)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -448,7 +449,7 @@ obj1[1] = 42
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -496,7 +497,7 @@ result2 = obj.another_method()
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -539,7 +540,7 @@ async def test_async_context():
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -588,7 +589,7 @@ del obj.attr           # Calls __delete__
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),

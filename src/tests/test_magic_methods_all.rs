@@ -4,6 +4,7 @@ use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
 use crate::{RuffDeprecatedFunctionCollector, TypeIntrospectionMethod};
 use std::collections::HashMap;
+use std::path::Path;
 
 #[test]
 fn test_repr_magic_method_migration() {
@@ -27,7 +28,7 @@ result = repr(obj)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -65,7 +66,7 @@ if obj:  # This won't be migrated in this implementation
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -103,7 +104,7 @@ result = int(obj)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -139,7 +140,7 @@ result = float(obj)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -175,7 +176,7 @@ result = bytes(obj)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -211,7 +212,7 @@ result = hash(obj)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -247,7 +248,7 @@ length = len(container)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -294,7 +295,7 @@ i = int(obj)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -338,7 +339,7 @@ b = bool(obj)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -387,7 +388,7 @@ total = 10 + int(container.item)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),

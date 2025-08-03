@@ -8,6 +8,7 @@ mod tests {
     use crate::type_introspection_context::TypeIntrospectionContext;
     use crate::types::TypeIntrospectionMethod;
     use std::collections::HashMap;
+    use std::path::Path;
 
     #[test]
     fn test_type_introspection_failure_logs_error() {
@@ -51,7 +52,7 @@ mystery_var.reset_index()
         let result = migrate_file(
             source,
             "test_module",
-            test_ctx.file_path,
+            Path::new(&test_ctx.file_path),
             &mut type_context,
             replacements,
             HashMap::new(),
@@ -112,7 +113,7 @@ obj.reset_index()
         let result = migrate_file(
             source,
             "test_module",
-            test_ctx.file_path,
+            Path::new(&test_ctx.file_path),
             &mut type_context,
             replacements,
             HashMap::new(),

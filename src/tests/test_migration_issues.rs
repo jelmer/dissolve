@@ -9,6 +9,7 @@ mod tests {
     use crate::type_introspection_context::TypeIntrospectionContext;
     use crate::types::TypeIntrospectionMethod;
     use std::collections::HashMap;
+    use std::path::Path;
 
     // Helper function to migrate source code with replacements
     fn migrate_source_with_replacements(
@@ -21,7 +22,7 @@ mod tests {
         let result = migrate_file(
             source,
             "test_module",
-            test_ctx.file_path.clone(),
+            Path::new(&test_ctx.file_path),
             &mut type_context,
             replacements,
             HashMap::new(),
@@ -235,7 +236,7 @@ def test_worktree_operations():
         let result = migrate_file(
             &source,
             "test_module",
-            test_ctx.file_path.clone(),
+            Path::new(&test_ctx.file_path),
             &mut type_context,
             replacements,
             HashMap::new(),

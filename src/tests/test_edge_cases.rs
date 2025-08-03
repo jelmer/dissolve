@@ -16,6 +16,7 @@ use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
 use crate::{RuffDeprecatedFunctionCollector, TypeIntrospectionMethod};
 use std::collections::HashMap;
+use std::path::Path;
 
 #[test]
 fn test_async_double_await_fix() {
@@ -37,7 +38,7 @@ result = await old_async_func(10)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -73,7 +74,7 @@ result = await obj.old_async_method(10)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -107,7 +108,7 @@ result = old_func(1, 2, 3, y=4, z=5)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -142,7 +143,7 @@ result1 = obj.old_method(10)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -180,7 +181,7 @@ result = old_func(expensive_call1(), expensive_call2())
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -224,7 +225,7 @@ obj.old_prop = 42
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -275,7 +276,7 @@ result2 = inner.old_method()
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -309,7 +310,7 @@ result = list(gen)
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -345,7 +346,7 @@ finally:
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -383,7 +384,7 @@ docstring = '''This function uses old_func internally'''
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -417,7 +418,7 @@ result = old_func("a", "bb", "x", "y")
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),
@@ -453,7 +454,7 @@ data = [old_func(x) for x in range(3) if (result := old_func(x)) > 0]
     let migrated = migrate_file(
         source,
         "test_module",
-        "test.py".to_string(),
+        Path::new("test.py"),
         &mut type_context,
         result.replacements,
         HashMap::new(),

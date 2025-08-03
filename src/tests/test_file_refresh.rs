@@ -2,6 +2,7 @@ use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
 use crate::types::TypeIntrospectionMethod;
 use std::collections::HashMap;
+use std::path::Path;
 
 #[test]
 fn test_file_refresh_after_migration() {
@@ -31,13 +32,17 @@ result2 = old_func(10)
         TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightWithMypyFallback).unwrap();
 
     // Simulate opening both files initially
-    type_context.open_file("test_module1.py", source1).unwrap();
-    type_context.open_file("test_module2.py", source2).unwrap();
+    type_context
+        .open_file(Path::new("test_module1.py"), source1)
+        .unwrap();
+    type_context
+        .open_file(Path::new("test_module2.py"), source2)
+        .unwrap();
 
     // Collect replacements for the first file
     let collector = crate::core::RuffDeprecatedFunctionCollector::new(
         "test_module1".to_string(),
-        Some("test_module1.py".to_string()),
+        Some(Path::new("test_module1.py")),
     );
     let result1 = collector.collect_from_source(source1.to_string()).unwrap();
 
@@ -45,7 +50,7 @@ result2 = old_func(10)
     let migrated1 = migrate_file(
         source1,
         "test_module1",
-        "test_module1.py".to_string(),
+        Path::new("test_module1.py"),
         &mut type_context,
         result1.replacements,
         HashMap::new(),
@@ -61,7 +66,7 @@ result2 = old_func(10)
     let migrated2 = migrate_file(
         source2,
         "test_module2",
-        "test_module2.py".to_string(),
+        Path::new("test_module2.py"),
         &mut type_context,
         HashMap::new(), // No local replacements in file 2
         HashMap::new(),
@@ -84,14 +89,20 @@ def example():
         TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
 
     // Open a file
-    type_context.open_file("test.py", source).unwrap();
+    type_context
+        .open_file(Path::new("test.py"), source)
+        .unwrap();
 
     // Update it multiple times
     let updated1 = "def example():\n    return 43\n";
-    type_context.update_file("test.py", updated1).unwrap();
+    type_context
+        .update_file(Path::new("test.py"), updated1)
+        .unwrap();
 
     let updated2 = "def example():\n    return 44\n";
-    type_context.update_file("test.py", updated2).unwrap();
+    type_context
+        .update_file(Path::new("test.py"), updated2)
+        .unwrap();
 
     // File versions should be tracked internally
     // (We can't directly test the version numbers, but we can verify no errors occur)

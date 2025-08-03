@@ -7,6 +7,7 @@ mod tests {
     use crate::type_introspection_context::TypeIntrospectionContext;
     use crate::types::TypeIntrospectionMethod;
     use std::collections::HashMap;
+    use std::path::Path;
 
     #[test]
     fn test_lazy_type_lookup_skips_non_replaceable_methods() {
@@ -37,7 +38,7 @@ obj.another_method()
         let result = migrate_file(
             source,
             "test_module",
-            test_ctx.file_path,
+            Path::new(&test_ctx.file_path),
             &mut type_context,
             replacements,
             HashMap::new(),
@@ -78,7 +79,7 @@ obj.replaced_method()
         let result = migrate_file(
             source,
             "test_module",
-            test_ctx.file_path.clone(),
+            Path::new(&test_ctx.file_path),
             &mut type_context,
             HashMap::new(), // Let it collect from source
             HashMap::new(),

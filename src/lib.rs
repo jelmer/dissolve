@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod ast_transformer;
 pub mod checker;
 pub mod core;
 pub mod dependency_collector;
@@ -19,12 +20,11 @@ pub mod migrate_ruff;
 pub mod mypy_lsp;
 pub mod pyright_lsp;
 pub mod remover;
-pub mod type_introspection_context;
-pub mod ast_transformer;
 pub mod ruff_parser;
 pub mod ruff_parser_improved;
 pub mod ruff_remover;
 pub mod scanner;
+pub mod type_introspection_context;
 pub mod types;
 
 pub use checker::CheckResult;

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::cell::RefCell;
+use std::path::Path;
 use std::rc::Rc;
 
 use crate::mypy_lsp::MypyTypeIntrospector;
@@ -79,31 +80,38 @@ impl TypeIntrospectionContext {
     }
 
     /// Open a file for type introspection
-    pub fn open_file(&mut self, file_path: &str, content: &str) -> Result<()> {
-        self.file_versions.insert(file_path.to_string(), 1);
+    pub fn open_file(&mut self, file_path: &Path, content: &str) -> Result<()> {
+        let path_str = file_path.to_string_lossy();
+        self.file_versions.insert(path_str.to_string(), 1);
 
         if let Some(ref client) = self.pyright_client {
-            client.borrow_mut().open_file(file_path, content)?;
+            client.borrow_mut().open_file(&path_str, content)?;
         }
 
         Ok(())
     }
 
     /// Update a file after modifications
-    pub fn update_file(&mut self, file_path: &str, content: &str) -> Result<()> {
-        let version = self.file_versions.get(file_path).copied().unwrap_or(1) + 1;
-        self.file_versions.insert(file_path.to_string(), version);
+    pub fn update_file(&mut self, file_path: &Path, content: &str) -> Result<()> {
+        let path_str = file_path.to_string_lossy();
+        let version = self
+            .file_versions
+            .get(path_str.as_ref())
+            .copied()
+            .unwrap_or(1)
+            + 1;
+        self.file_versions.insert(path_str.to_string(), version);
 
         if let Some(ref client) = self.pyright_client {
             client
                 .borrow_mut()
-                .update_file(file_path, content, version)?;
+                .update_file(&path_str, content, version)?;
         }
 
         if let Some(ref client) = self.mypy_client {
             client
                 .borrow_mut()
-                .invalidate_file(file_path)
+                .invalidate_file(&path_str)
                 .map_err(|e| anyhow::anyhow!("Failed to invalidate mypy cache: {}", e))?;
         }
 

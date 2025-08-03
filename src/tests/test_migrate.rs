@@ -19,6 +19,7 @@ mod tests {
     use crate::type_introspection_context::TypeIntrospectionContext;
     use crate::types::TypeIntrospectionMethod;
     use std::collections::HashMap;
+    use std::path::Path;
 
     fn migrate_source(source: &str) -> String {
         // Migrate using collected replacements - apply until no more changes
@@ -54,7 +55,7 @@ mod tests {
             let migrated = migrate_file(
                 &current_source,
                 "test_module",
-                test_ctx.file_path.clone(),
+                Path::new(&test_ctx.file_path),
                 &mut type_context,
                 result.replacements.clone(),
                 HashMap::new(),
@@ -272,7 +273,7 @@ def main():
         let migrated = migrate_file(
             source,
             "test_module",
-            test_ctx.file_path,
+            Path::new(&test_ctx.file_path),
             &mut type_context,
             replacements,
             HashMap::new(),

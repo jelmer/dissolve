@@ -212,7 +212,7 @@ fn visit_python_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// Expand a list of paths to include directories and Python object paths
 fn expand_paths(paths: &[String], as_module: bool) -> Result<Vec<PathBuf>> {
     use indexmap::IndexSet;
-    
+
     let mut expanded = IndexSet::new();
     for path in paths {
         expanded.extend(discover_python_files(path, as_module)?);
@@ -256,7 +256,8 @@ fn detect_module_name(file_path: &Path) -> String {
         module_parts.join(".")
     } else {
         // Fallback to just the filename stem
-        file_path.file_stem()
+        file_path
+            .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default()
     }
@@ -448,11 +449,7 @@ fn main() -> Result<()> {
             for filepath in &files {
                 let source = fs::read_to_string(filepath)?;
                 let module_name = detect_module_name(filepath);
-                let result = check_file(
-                    &source,
-                    &module_name,
-                    filepath,
-                )?;
+                let result = check_file(&source, &module_name, filepath)?;
                 if result.success {
                     if !result.checked_functions.is_empty() {
                         println!(

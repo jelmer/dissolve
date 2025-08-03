@@ -17,6 +17,7 @@ use crate::migrate_ruff::migrate_file_interactive;
 use crate::type_introspection_context::TypeIntrospectionContext;
 use crate::types::TypeIntrospectionMethod;
 use std::collections::HashMap;
+use std::path::Path;
 
 #[test]
 fn test_interactive_migration_basic() {
@@ -39,7 +40,7 @@ def test_func():
     let result = migrate_file_interactive(
         source,
         "test_module",
-        test_ctx.file_path,
+        Path::new(&test_ctx.file_path),
         &mut type_context,
         HashMap::new(), // Empty replacements since collector will find them
         HashMap::new(),
@@ -98,7 +99,7 @@ def test_func():
     let result = migrate_file_interactive(
         source,
         "test_module",
-        test_ctx.file_path,
+        Path::new(&test_ctx.file_path),
         &mut type_context,
         replacements,
         HashMap::new(),

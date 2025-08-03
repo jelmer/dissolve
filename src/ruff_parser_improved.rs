@@ -136,7 +136,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
         inheritance_map: HashMap<String, Vec<String>>,
     ) -> Result<Self> {
         // Open the file in the context
-        type_introspection_context.open_file(&file_path, &source_content)?;
+        type_introspection_context.open_file(std::path::Path::new(&file_path), &source_content)?;
 
         // Get the clients from context
         let pyright_client = type_introspection_context.pyright_client();

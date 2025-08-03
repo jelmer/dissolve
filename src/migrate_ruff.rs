@@ -34,8 +34,7 @@ pub fn migrate_file(
     dependency_inheritance_map: HashMap<String, Vec<String>>,
 ) -> Result<String> {
     // Always collect from source to get inheritance information
-    let collector =
-        RuffDeprecatedFunctionCollector::new(module_name.to_string(), Some(file_path));
+    let collector = RuffDeprecatedFunctionCollector::new(module_name.to_string(), Some(file_path));
     let collector_result = collector.collect_from_source(source.to_string())?;
 
     // Merge provided replacements with ones collected from the source file
@@ -93,7 +92,7 @@ pub fn migrate_file(
 
     // Update the file in type introspection context if changes were made
     if !replacements.is_empty() {
-        type_introspection_context.update_file(&file_path, &migrated_source)?;
+        type_introspection_context.update_file(file_path, &migrated_source)?;
     }
 
     Ok(migrated_source)
@@ -180,7 +179,7 @@ mod tests {
         migrate_file(
             source,
             module_name,
-            file_path,
+            Path::new(&file_path),
             &mut context,
             replacements,
             HashMap::new(),
@@ -218,7 +217,7 @@ result = old_func(5, 10)
         let migrated = migrate_file(
             source,
             "test_module",
-            test_ctx.file_path,
+            Path::new(&test_ctx.file_path),
             &mut type_context,
             result.replacements,
             HashMap::new(),

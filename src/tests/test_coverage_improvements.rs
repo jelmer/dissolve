@@ -67,7 +67,10 @@ def old_function():
 
     assert!(result.replacements.contains_key("test_module.old_function"));
     let replacement = &result.replacements["test_module.old_function"];
-    assert_eq!(replacement.message, Some("Use the new API instead".to_string()));
+    assert_eq!(
+        replacement.message,
+        Some("Use the new API instead".to_string())
+    );
 }
 
 #[test]
@@ -103,7 +106,9 @@ class OuterClass:
     let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
-    assert!(result.replacements.contains_key("test_module.OuterClass.InnerClass.old_method"));
+    assert!(result
+        .replacements
+        .contains_key("test_module.OuterClass.InnerClass.old_method"));
     let replacement = &result.replacements["test_module.OuterClass.InnerClass.old_method"];
     assert_eq!(replacement.construct_type, ConstructType::Function);
     assert_eq!(replacement.replacement_expr, "{self}.new_method()");
@@ -125,7 +130,10 @@ def old_function():
 
     assert!(result.replacements.contains_key("test_module.old_function"));
     let replacement = &result.replacements["test_module.old_function"];
-    assert_eq!(replacement.replacement_expr, "other.module.submodule.helper()");
+    assert_eq!(
+        replacement.replacement_expr,
+        "other.module.submodule.helper()"
+    );
 }
 
 #[test]
@@ -141,7 +149,9 @@ def old_calculation(x, y):
     let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
-    assert!(result.replacements.contains_key("test_module.old_calculation"));
+    assert!(result
+        .replacements
+        .contains_key("test_module.old_calculation"));
     let replacement = &result.replacements["test_module.old_calculation"];
     assert_eq!(replacement.replacement_expr, "{x} * 2 + {y}");
 }
@@ -161,7 +171,10 @@ def old_function(items):
 
     assert!(result.replacements.contains_key("test_module.old_function"));
     let replacement = &result.replacements["test_module.old_function"];
-    assert_eq!(replacement.replacement_expr, "test_module.new_function(*{items})");
+    assert_eq!(
+        replacement.replacement_expr,
+        "test_module.new_function(*{items})"
+    );
 }
 
 #[test]
@@ -177,7 +190,9 @@ async def old_async_function():
     let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
-    assert!(result.replacements.contains_key("test_module.old_async_function"));
+    assert!(result
+        .replacements
+        .contains_key("test_module.old_async_function"));
     let replacement = &result.replacements["test_module.old_async_function"];
     // await should be unwrapped from the replacement
     assert_eq!(replacement.replacement_expr, "test_module.async_helper()");
@@ -238,7 +253,9 @@ class MyClass:
     let collector = RuffDeprecatedFunctionCollector::new("test_module".to_string(), None);
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
-    assert!(result.replacements.contains_key("test_module.MyClass.CONSTANT"));
+    assert!(result
+        .replacements
+        .contains_key("test_module.MyClass.CONSTANT"));
     let replacement = &result.replacements["test_module.MyClass.CONSTANT"];
     assert_eq!(replacement.construct_type, ConstructType::ClassAttribute);
     assert_eq!(replacement.replacement_expr, "42");
@@ -265,5 +282,7 @@ def old_function(arg1, arg2, arg3):
     let replacement = &result.replacements["test_module.old_function"];
     // Should preserve multiline formatting
     assert!(replacement.replacement_expr.contains('\n'));
-    assert!(replacement.replacement_expr.contains("test_module.new_function"));
+    assert!(replacement
+        .replacement_expr
+        .contains("test_module.new_function"));
 }

@@ -380,10 +380,10 @@ impl RuffDeprecatedFunctionCollector {
     /// Get all builtin names from Python
     fn get_all_builtins() -> HashSet<String> {
         use pyo3::prelude::*;
-        
+
         Python::with_gil(|py| {
             let mut builtin_names = HashSet::new();
-            
+
             // Get the builtins module
             if let Ok(builtins) = py.import("builtins") {
                 // Get all attributes of the builtins module
@@ -396,11 +396,11 @@ impl RuffDeprecatedFunctionCollector {
                     }
                 }
             }
-            
+
             builtin_names
         })
     }
-    
+
     /// Check if a name is a Python builtin
     fn is_builtin(&self, name: &str) -> bool {
         self.builtins.contains(name)
@@ -687,15 +687,24 @@ impl RuffDeprecatedFunctionCollector {
                                                 if param.name != "self" {
                                                     let pattern = if param.is_vararg {
                                                         // Match *args
-                                                        format!(r"\*{}\b", regex::escape(&param.name))
+                                                        format!(
+                                                            r"\*{}\b",
+                                                            regex::escape(&param.name)
+                                                        )
                                                     } else if param.is_kwarg {
                                                         // Match **kwargs
-                                                        format!(r"\*\*{}\b", regex::escape(&param.name))
+                                                        format!(
+                                                            r"\*\*{}\b",
+                                                            regex::escape(&param.name)
+                                                        )
                                                     } else {
                                                         // Match regular parameter
-                                                        format!(r"\b{}\b", regex::escape(&param.name))
+                                                        format!(
+                                                            r"\b{}\b",
+                                                            regex::escape(&param.name)
+                                                        )
                                                     };
-                                                    
+
                                                     let placeholder = if param.is_vararg {
                                                         format!("*{{{}}}", param.name)
                                                     } else if param.is_kwarg {
@@ -703,7 +712,7 @@ impl RuffDeprecatedFunctionCollector {
                                                     } else {
                                                         format!("{{{}}}", param.name)
                                                     };
-                                                    
+
                                                     replacement_expr = regex::Regex::new(&pattern)
                                                         .unwrap()
                                                         .replace_all(

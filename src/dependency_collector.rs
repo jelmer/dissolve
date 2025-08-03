@@ -16,6 +16,7 @@ use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::Path;
 use std::sync::Mutex;
 use tracing;
 
@@ -261,8 +262,10 @@ pub fn collect_deprecated_from_module_with_paths(
         tracing::debug!("Module {} contains replace_me, collecting...", module_path);
 
         // Parse and collect using Ruff
-        let collector =
-            RuffDeprecatedFunctionCollector::new(module_path.to_string(), Some(file_path));
+        let collector = RuffDeprecatedFunctionCollector::new(
+            module_path.to_string(),
+            Some(Path::new(&file_path)),
+        );
         if let Ok(collector_result) = collector.collect_from_source(source) {
             tracing::debug!(
                 "Found {} replacements in {}",
@@ -548,7 +551,7 @@ pub fn scan_file_with_dependencies(
 
     // First collect from the file itself using Ruff
     let collector =
-        RuffDeprecatedFunctionCollector::new(module_name.to_string(), Some(file_path.to_string()));
+        RuffDeprecatedFunctionCollector::new(module_name.to_string(), Some(Path::new(&file_path)));
     if let Ok(result) = collector.collect_from_source(source.clone()) {
         all_replacements.extend(result.replacements);
     }
