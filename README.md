@@ -15,16 +15,29 @@ $ pip install dissolve
 This provides the `@replace_me` decorator for marking deprecated functions and generating
 deprecation warnings with replacement suggestions.
 
-For the `dissolve` command-line tool:
+For the `dissolve` command-line tool, first install the Python package:
 
 ```console
-$ pip install dissolve[tool]
+$ pip install dissolve
 ```
 
-The `tool` extra will build and install the high-performance Rust-based CLI during installation.
-This requires Rust to be installed on your system (install from https://rustup.rs/).
+Then install the high-performance Rust binary:
 
-The Rust CLI provides the following commands:
+```console
+$ cargo install dissolve-python
+```
+
+If you don't have Rust installed:
+
+```console
+$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+$ source ~/.cargo/env
+$ cargo install dissolve-python
+```
+
+The Python package provides a wrapper that automatically detects and uses the Rust binary when available.
+
+The CLI provides the following commands:
 - `dissolve migrate`: Automatically replace deprecated function calls
 - `dissolve cleanup`: Remove deprecated functions after migration
 - `dissolve check`: Validate that deprecations can be migrated

@@ -124,7 +124,9 @@ def replace_me(
         else:
             callable.__doc__ = deprecation_notice
 
-        def emit_warning(callable: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+        def emit_warning(
+            callable: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+        ) -> None:
             # Get the source code of the function
             source = inspect.getsource(callable)
             # Parse to extract the function body

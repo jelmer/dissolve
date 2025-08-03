@@ -1,5 +1,5 @@
 [package]
-name = "dissolve"
+name = "dissolve-python"
 version = "0.1.0"
 edition = "2021"
 
