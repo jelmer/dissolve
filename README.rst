@@ -5,6 +5,28 @@ The dissolve library helps users replace calls to deprecated library APIs by
 automatically substituting the deprecated function call with the body of the
 deprecated function.
 
+Installation
+============
+
+Basic installation (for using the ``@replace_me`` decorator):
+
+.. code-block:: console
+
+   $ pip install dissolve
+
+This provides the ``@replace_me`` decorator for marking deprecated functions and generating
+deprecation warnings with replacement suggestions.
+
+For the ``dissolve`` command-line tool and its subcommands (``migrate``, ``cleanup``, ``check``, ``info``):
+
+.. code-block:: console
+
+   $ pip install dissolve[migrate]
+
+The ``migrate`` extra includes LibCST for code parsing and Pyre for advanced type inference,
+enabling automatic migration of deprecated function calls and better detection of deprecated
+method calls on variables where the type needs to be inferred from context.
+
 Example
 =======
 
@@ -112,6 +134,80 @@ Apply changes:
 
 The command respects the replacement expressions defined in the ``@replace_me``
 decorator and substitutes actual argument values.
+
+How dissolve Works
+==================
+
+Dissolve uses type inference to determine which function calls to migrate. This
+avoids false positives when different classes have methods with the same name.
+
+Type Tracking
+-------------
+
+When dissolve processes a file, it:
+
+1. Tracks variable assignments to determine types
+2. Follows imports to resolve fully qualified names
+3. Scans imported modules for ``@replace_me`` decorated functions
+4. Uses this information to match function calls to their definitions
+
+For example:
+
+.. code-block:: python
+
+   from mylib import OldClass
+   from other_lib import DifferentClass
+   
+   obj1 = OldClass()
+   obj1.deprecated_method()  # Migrated - dissolve knows obj1 is OldClass
+   
+   obj2 = DifferentClass()
+   obj2.deprecated_method()  # Not migrated - different class
+
+Import Resolution
+-----------------
+
+Dissolve resolves imports to handle various import styles:
+
+.. code-block:: python
+
+   # These imports of the same function:
+   from mylib.utils import old_function
+   from mylib.utils import old_function as legacy_func
+   import mylib.utils
+   
+   # Are all recognized in these calls:
+   old_function()               # Direct import
+   legacy_func()                # Aliased import
+   mylib.utils.old_function()   # Module attribute access
+
+Context Managers
+----------------
+
+Variable assignments in ``with`` statements are tracked:
+
+.. code-block:: python
+
+   with open_repo() as r:
+       r.stage(files)  # dissolve tracks that r is the return type of open_repo()
+
+Inheritance
+-----------
+
+Method resolution includes parent classes:
+
+.. code-block:: python
+
+   class Base:
+       @replace_me()
+       def old_method(self):
+           return self.new_method()
+   
+   class Child(Base):
+       pass
+   
+   obj = Child()
+   obj.old_method()  # Migrated even though method is defined in parent class
 
 
 dissolve cleanup
