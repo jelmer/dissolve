@@ -39,7 +39,7 @@ dissolve = ["py.typed"]
 version = {attr = "dissolve.__version__"}
 
 [project.optional-dependencies]
-testing = ["pytest"]
+testing = ["pytest", "pytest-asyncio"]
 dev = [
     "ruff==0.11.11",
     "mypy==1.15.0"
@@ -106,3 +106,6 @@ no_strict_optional = true
 [[tool.mypy.overrides]]
 module = "pytest"
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["dissolve/tests"]
