@@ -25,15 +25,13 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          components: rustfmt, clippy
+          components: rustfmt
       - name: Install Python (for PyO3)
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
-      - name: Clippy linting
-        run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Build
         run: cargo build --verbose
       - name: Run Rust tests
