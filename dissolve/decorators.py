@@ -33,7 +33,7 @@ Example:
 """
 
 import functools
-from typing import Any, Callable, Optional, TypeVar, Union, cast
+from typing import Any, Callable, Optional, TypeVar, Union
 
 # Type variable for preserving function signatures
 F = TypeVar("F", bound=Callable[..., Any])
@@ -101,14 +101,15 @@ def replace_me(
           substituted with actual argument values when generating the warning.
         - The original function is still executed after emitting the warning.
     """
-    import ast
-    import inspect
-    import textwrap
-    import warnings
-
-    from .ast_utils import create_ast_from_value, substitute_parameters
 
     def function_decorator(callable: F) -> F:
+        import ast
+        import inspect
+        import textwrap
+        import warnings
+
+        from .ast_utils import substitute_parameters
+
         # Generate deprecation notice
         deprecation_notice = ".. deprecated::"
         if since:
@@ -123,7 +124,9 @@ def replace_me(
         else:
             callable.__doc__ = deprecation_notice
 
-        def emit_warning(callable, args, kwargs):
+        def emit_warning(
+            callable: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+        ) -> None:
             # Get the source code of the function
             source = inspect.getsource(callable)
             # Parse to extract the function body
@@ -143,7 +146,7 @@ def replace_me(
                     and isinstance(stmts[0], ast.Return)
                     and stmts[0].value
                 ):
-                    stmt = cast(ast.Return, stmts[0])
+                    stmt = stmts[0]
                     assert isinstance(stmt.value, ast.expr)
                     # Get the expression being returned
                     replacement_expr: str = ast.unparse(stmt.value)
@@ -173,7 +176,7 @@ def replace_me(
 
                         # Convert values to AST nodes
                         ast_param_map = {
-                            name: create_ast_from_value(value)
+                            name: ast.Constant(value=value)
                             if not isinstance(value, ast.AST)
                             else value
                             for name, value in arg_map.items()
@@ -185,6 +188,13 @@ def replace_me(
                         # Convert back to string
                         evaluated = ast.unparse(result_ast)
                     except Exception:
+                        import logging
+
+                        logger = logging.getLogger(__name__)
+                        logger.exception(
+                            "Failed to evaluate replacement expression for %s",
+                            callable.__name__,
+                        )
                         # Fallback to original if AST manipulation fails
                         evaluated = replacement_expr
 
@@ -221,12 +231,12 @@ def replace_me(
             # For wrapper classes, we'll add a deprecation warning to __init__
             original_init = callable.__init__
 
-            def deprecated_init(self, *args, **kwargs):
+            def deprecated_init(self: Any, *args: Any, **kwargs: Any) -> Any:
                 emit_warning(callable, args, kwargs)
                 return original_init(self, *args, **kwargs)
 
             callable.__init__ = deprecated_init
-            return callable  # type: ignore[return-value]
+            return callable
 
         # Check if the callable is an async function
         elif inspect.iscoroutinefunction(callable):

@@ -16,7 +16,6 @@
 
 import ast
 from collections.abc import Mapping
-from typing import Any
 
 
 class ParameterSubstitutor(ast.NodeTransformer):
@@ -49,23 +48,13 @@ def substitute_parameters(
     """Substitute parameters in an AST expression.
 
     Args:
-        expr_ast: The AST expression containing parameter references
+        expr_ast: The AST expression to transform
         param_map: Dictionary mapping parameter names to their AST representations
 
     Returns:
-        New AST with parameters substituted
+        The transformed AST with parameters substituted
     """
     substitutor = ParameterSubstitutor(param_map)
-    return substitutor.visit(expr_ast)
-
-
-def create_ast_from_value(value: Any) -> ast.AST:
-    """Create an AST node from a Python value.
-
-    Args:
-        value: Python value to convert to AST
-
-    Returns:
-        AST representation of the value
-    """
-    return ast.Constant(value=value)
+    result = substitutor.visit(expr_ast)
+    assert isinstance(result, ast.AST)
+    return result

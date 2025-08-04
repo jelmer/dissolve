@@ -4,4 +4,22 @@ __pycache__
 .tox
 *~
 *.swp
+*.swo
+*.un~
 build/
+.venv/
+.pytest_cache/
+mutants.out/
+mutants.out.*/
+.mypy_cache/
+.coverage
+htmlcov/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+
+
+# Added by cargo
+
+/target

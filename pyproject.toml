@@ -1,11 +1,11 @@
 [build-system]
-requires = ["setuptools>=61.2"]
+requires = ["setuptools>=61.2", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "dissolve"
 description = "Automatically replace use of deprecated APIs"
-readme = "README.rst"
+readme = "README.md"
 authors = [{name = "Jelmer Vernooĳ", email = "jelmer@jelmer.uk"}]
 license = {text = "Apachev2 or later"}
 classifiers = [
@@ -25,25 +25,29 @@ requires-python = ">=3.9"
 dependencies = ["packaging"]
 dynamic = ["version"]
 
-[project.scripts]
-dissolve = "dissolve.__main__:main"
 
 [tool.setuptools]
-include-package-data = false
+include-package-data = true
 
 [tool.setuptools.packages]
 find = {namespaces = false}
+
+[tool.setuptools.package-data]
+dissolve = ["py.typed"]
 
 [tool.setuptools.dynamic]
 version = {attr = "dissolve.__version__"}
 
 [project.optional-dependencies]
-testing = ["pytest"]
+testing = ["pytest", "pytest-asyncio"]
 dev = [
     "ruff==0.11.11",
     "mypy==1.15.0"
 ]
-migrate = ["libcst>=1.0.0"]
+tool = []
+
+[project.scripts]
+dissolve = "dissolve.cli:main"
 
 [tool.ruff.lint]
 select = [
@@ -83,4 +87,25 @@ ignore = [
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.mypy]
+strict = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_reexport = true
+disallow_untyped_defs = true
 
+[[tool.mypy.overrides]]
+module = "dissolve.tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = false
+disallow_untyped_calls = false
+no_strict_optional = true
+
+[[tool.mypy.overrides]]
+module = "pytest"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["dissolve/tests"]

@@ -2,194 +2,250 @@
 
 ## Overview
 
-Dissolve is a Python library that helps developers migrate from deprecated APIs to their replacements. It provides a comprehensive solution for managing API deprecations through runtime warnings and automated code migration tools.
+Dissolve is a hybrid Python/Rust tool that helps developers migrate from deprecated APIs to their replacements. The core migration and analysis functionality has been rewritten in Rust for improved performance, while the `@replace_me` decorator remains in Python for runtime deprecation warnings.
 
 ## Core Purpose
 
-The library addresses the common problem of API deprecation by providing:
-- A decorator to mark deprecated functions with suggested replacements
-- Command-line tools to automatically migrate codebases
+The tool addresses the common problem of API deprecation by providing:
+- A Python decorator (`@replace_me`) to mark deprecated functions with runtime warnings
+- A Rust-based CLI tool for fast code analysis and transformation
+- Automated migration of deprecated function calls to their replacements
 - Validation tools to ensure deprecations can be properly migrated
-- Utilities to clean up deprecated decorators after migration
+- Version-aware cleanup utilities for library maintainers
 
 ## Architecture
 
-### High-Level Components
+### Rust/Python Split
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   CLI Interface │    │  CST Processing │    │ Decorator System│
-│   (__main__.py) │    │    Pipeline     │    │ (decorators.py) │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         └───────────────────────┼───────────────────────┘
-                                 │
-         ┌─────────────────────────────────────────────────┐
-         │             Migration Engine                    │
-         │              (migrate.py)                       │
-         └─────────────────────────────────────────────────┘
-                                 │
-    ┌────────────────────────────┼────────────────────────────┐
-    │                            │                            │
-┌─────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Validation  │    │   CST Utils     │    │  Import Utils   │
-│ (check.py)  │    │ (libcst-based)  │    │(import_utils.py)│
-└─────────────┘    └─────────────────┘    └─────────────────┘
-```
+The project maintains a clear separation between Rust and Python components:
 
-### Core Components
+**Rust Components** (Performance-critical operations):
+- CLI binary and command parsing
+- AST parsing using Ruff parser
+- Code transformation and migration logic
+- Type introspection integration (Pyright/MyPy)
+- File scanning and pattern matching
+- Deprecated function collection and analysis
 
-#### 1. Decorator System (`decorators.py`)
-The `@replace_me` decorator marks deprecated functions and provides runtime warnings:
+**Python Components** (Runtime functionality):
+- `@replace_me` decorator for runtime warnings
+- Python AST analysis for decorator metadata extraction
+- Integration with Python's warning system
+
+### Key Design Decisions
+
+1. **Ruff Parser**: Uses Ruff's Python parser for fast, accurate AST parsing
+2. **Type Introspection**: Integrates with Pyright LSP and MyPy daemon for type-aware replacements
+3. **Format Preservation**: Maintains original code formatting through careful AST manipulation
+4. **No Configuration**: Works out-of-the-box without configuration files
+5. **Parallel Processing**: Leverages Rust's concurrency for large codebases
+
+### Core Components (Rust Implementation)
+
+#### 1. CLI Binary (`src/bin/main.rs`)
+The main entry point providing four commands:
+- `migrate`: Replace deprecated function calls with their replacements
+- `cleanup`: Remove deprecated functions based on version constraints
+- `check`: Validate that deprecated functions can be migrated
+- `info`: List all deprecated functions and their replacements
+
+#### 2. Migration Engine (`src/migrate_ruff.rs`)
+Orchestrates the complete migration process:
+- Parses Python source using Ruff parser
+- Collects deprecated functions from current file and dependencies
+- Applies type-aware transformations
+- Supports both automatic and interactive modes
+- Preserves code formatting through AST manipulation
+
+#### 3. Function Collection (`src/core/ruff_collector.rs`)
+Discovers and analyzes `@replace_me` decorated functions:
+- Extracts replacement expressions from function bodies
+- Handles various Python constructs (functions, methods, properties)
+- Collects parameter information and metadata
+- Tracks inheritance relationships for method resolution
+
+#### 4. AST Transformation (`src/ruff_parser_improved.rs`)
+Performs the actual code transformations:
+- Identifies deprecated function calls
+- Maps arguments to replacement expressions
+- Handles complex cases like method calls, chained calls
+- Integrates with type introspection for accurate replacements
+- Preserves original code structure and formatting
+
+#### 5. Type Introspection (`src/type_introspection_context.rs`)
+Provides type information for accurate replacements:
+- **Pyright Integration** (`src/pyright_lsp.rs`): LSP-based type checking
+- **MyPy Integration** (`src/mypy_lsp.rs`): Daemon-based type analysis
+- Falls back gracefully when type checkers unavailable
+- Caches type information for performance
+
+#### 6. Python Decorator (Python Component)
+The `@replace_me` decorator remains in Python:
 ```python
 @replace_me(since="1.0.0", remove_in="2.0.0")
 def deprecated_function(x, y):
     return new_function(x, y=y)
 ```
-
-**Responsibilities:**
-- Runtime deprecation warnings
-- Metadata storage for migration tools
-- AST-based analysis to extract replacement expressions (still uses ast for runtime warnings)
-
-#### 2. CST Processing Pipeline
-A collection of modules that parse, analyze, and transform Python code using libcst (Concrete Syntax Tree):
-
-- **Collector** (`collector.py`): Discovers `@replace_me` decorated functions and extracts replacement information using CST visitors
-- **Replacer** (`replacer.py`): Transforms function calls to use replacement expressions while preserving formatting
-- **CST-based processing**: Leverages libcst for format-preserving transformations
-- **Legacy AST Utilities** (`ast_utils.py`): Retained for backward compatibility but no longer actively used
-
-#### 3. Migration Engine (`migrate.py`)
-The core migration logic that orchestrates the transformation process:
-- Cross-file migration with import resolution using libcst
-- Interactive mode for user confirmation with position tracking via CST metadata
-- Module resolver system for handling dependencies
-- Format-preserving transformations to maintain code style
-
-#### 4. Command-Line Interface (`__main__.py`)
-Four main commands:
-- `dissolve migrate`: Automatically replace deprecated calls (for library users)
-- `dissolve cleanup`: Remove deprecated functions entirely (for library maintainers)
-- `dissolve check`: Validate that decorators can be migrated
-- `dissolve info`: List all deprecated functions and replacements
-
-#### 5. Validation and Analysis
-- **Check** (`check.py`): Validates that `@replace_me` functions can be processed using libcst
-- **Context Analyzer** (`context_analyzer.py`): Analyzes local definitions and imports (libcst-based)
-- **Import Utils** (`import_utils.py`): Manages import requirements and dependencies using CST visitors
+- Provides runtime deprecation warnings
+- Uses Python's AST for metadata extraction
+- Integrates with Python's warning system
 
 ## Key Data Structures
 
-### Core Types (`types.py`)
-```python
-class Replacement(Protocol):
-    """Protocol for replacement information"""
-    name: str
-    replacement: str
+### Core Types (Rust)
 
-class ReplaceInfo:
-    """Contains function name and replacement expression template"""
-    name: str
-    replacement: str
+```rust
+// src/core/types.rs
+pub struct ReplaceInfo {
+    pub old_name: String,
+    pub replacement_expr: String,
+    pub replacement_ast: Option<Box<ruff_python_ast::Expr>>,
+    pub construct_type: ConstructType,
+    pub parameters: Vec<ParameterInfo>,
+    pub return_type: Option<String>,
+    pub since: Option<String>,
+    pub remove_in: Option<String>,
+    pub message: Option<String>,
+}
 
-class ImportRequirement:
-    """Represents needed imports for replacements"""
-    module: str
-    names: list[str]
+pub enum ConstructType {
+    Function,
+    Property,
+    ClassMethod,
+    StaticMethod,
+    AsyncFunction,
+    Class,
+    ClassAttribute,
+    ModuleAttribute,
+}
+
+pub struct ParameterInfo {
+    pub name: String,
+    pub has_default: bool,
+    pub default_value: Option<String>,
+    pub is_vararg: bool,   // *args
+    pub is_kwarg: bool,    // **kwargs
+    pub is_kwonly: bool,   // keyword-only
+}
 ```
 
-### Error Handling
-```python
-class ReplacementExtractionError(Exception):
-    """Raised when a function body can't be processed"""
-    
-class ReplacementFailureReason(Enum):
-    """Categorizes why extraction failed"""
-    COMPLEX_BODY = "complex_body"
-    RECURSIVE_CALL = "recursive_call"
-    NO_RETURN = "no_return"
+### Collection Results
+
+```rust
+pub struct CollectionResult {
+    pub replacements: HashMap<String, ReplaceInfo>,
+    pub unreplaceable: HashMap<String, UnreplaceableConstruct>,
+    pub inheritance_map: HashMap<String, Vec<String>>,
+}
+
+pub struct UnreplaceableConstruct {
+    pub construct_type: ConstructType,
+    pub reason: ReplacementFailureReason,
+    pub message: String,
+}
 ```
 
 ## Workflows
 
-### 1. Migration Workflow
+### 1. Migration Workflow (Rust)
 ```
-Source Code Input
+Python Source File
     ↓
-Parse CST (libcst) → Collect @replace_me functions → Extract replacement expressions
+Ruff Parser → AST Generation → Collect @replace_me functions
     ↓
-Find function calls → Match with replacements → Substitute arguments
+Dependency Analysis → Collect functions from imported modules
     ↓
-Transform CST nodes → Generate format-preserving code → Output migrated code
-```
-
-### 2. Validation Workflow
-```
-Source Code Input
+AST Visitor → Find deprecated calls → Type introspection (if needed)
     ↓
-Parse CST → Find @replace_me functions → Validate function bodies
+Argument Mapping → Generate replacement AST → Apply transformations
     ↓
-Check for complex bodies/recursive calls → Report errors/success
+Code Generation → Format preservation → Output migrated code
 ```
 
-### 3. Function Cleanup Workflow (for library maintainers)
+### 2. Type-Aware Resolution
 ```
-Source Code Input
+Function Call Found
     ↓
-Parse CST → Find @replace_me functions → Check version constraints
+Check if method call → Query type checker (Pyright/MyPy)
     ↓
-Remove matching functions entirely → Output cleaned code
+Resolve actual type → Find matching replacement
+    ↓
+Apply type-specific transformation
 ```
 
-## Design Patterns
+### 3. Interactive Mode
+```
+Find replacement opportunity
+    ↓
+Calculate line/column position → Show context to user
+    ↓
+Prompt for confirmation → Apply if approved
+    ↓
+Continue to next occurrence
+```
 
-### CST Visitor Pattern
-Extensive use of libcst visitors and transformers:
-- `DeprecatedFunctionCollector` (cst.CSTVisitor): Collects deprecated function information
-- `FunctionCallReplacer` (cst.CSTTransformer): Transforms function calls while preserving formatting
-- `ReplaceRemover` (cst.CSTTransformer): Removes deprecated functions cleanly
-- `ContextAnalyzer` (cst.CSTVisitor): Analyzes module context with metadata support
+## Technology Stack
 
-### Strategy Pattern
-Different migration strategies:
-- `FunctionCallReplacer`: Automatic replacement
-- `InteractiveFunctionCallReplacer`: User-confirmed replacement
+### Rust Dependencies
 
-### Template Method Pattern
-Common file processing logic in `_process_files_common()` with shared:
-- Validation patterns
-- Output formatting
-- Error handling
+1. **AST Parsing**
+   - `ruff_python_parser`: Fast Python parser from the Ruff project
+   - `ruff_python_ast`: AST node definitions
+   - `ruff_python_codegen`: Code generation from AST
+   - `ruff_text_size`: Text position tracking
+
+2. **CLI and I/O**
+   - `clap`: Command-line argument parsing with derive macros
+   - `glob`: File pattern matching
+   - `anyhow`/`thiserror`: Error handling
+
+3. **Type Checking Integration**
+   - `pyo3`: Python interop for MyPy integration
+   - Custom LSP clients for Pyright/MyPy
+   - `serde`/`serde_json`: LSP message serialization
+
+4. **Utilities**
+   - `regex`: Pattern matching for file scanning
+   - `once_cell`: Lazy static initialization
+   - `tracing`: Structured logging
+
+### Python Components
+
+- Standard library only for the decorator module
+- No external dependencies required for runtime functionality
 
 ## Advanced Features
 
-### Cross-Module Migration
-Resolves imports to find deprecated functions in other modules:
+### Type-Aware Method Resolution
+Uses type checkers to resolve method calls correctly:
 ```python
-# Can migrate calls to deprecated functions in imported modules
-from other_module import deprecated_func
-result = deprecated_func(x, y)  # Will be replaced
+# Detects that obj is of type Foo and finds the right replacement
+obj = get_foo()
+result = obj.deprecated_method()  # Correctly replaced based on type
 ```
 
-### Version-Aware Removal
-Uses semantic versioning to determine when to remove decorators:
+### Inheritance Tracking
+Tracks class hierarchies to handle inherited deprecated methods:
 ```python
-@replace_me(since="1.0.0", remove_in="2.0.0")  # Removed when version >= 2.0.0
+class Parent:
+    @replace_me(...)
+    def old_method(self): ...
+
+class Child(Parent):
+    pass
+
+Child().old_method()  # Correctly identifies and replaces
 ```
 
-### Interactive Mode
-Allows selective migration with user confirmation:
-```bash
-dissolve migrate --interactive mycode.py
-# Prompts: Replace deprecated_func(x, y) with new_func(x, y=y)? [y/N]
-```
+### Cross-Module Dependency Analysis
+- Recursively analyzes imported modules (configurable depth)
+- Builds a complete map of available replacements
+- Handles various import styles (from, import as, etc.)
 
-### Context-Aware Analysis
-Understands the difference between local definitions and imports:
-- Analyzes local variable scope
-- Tracks import statements
-- Resolves naming conflicts
+### Parallel Processing
+- File discovery and initial scanning done in parallel
+- Type checking queries can be batched
+- Large codebases processed efficiently
 
 ## Error Handling Philosophy
 
@@ -210,6 +266,10 @@ Understands the difference between local definitions and imports:
 
 ## CLI Design Philosophy
 
+### Correctness
+- Ensures transformations are correct and safe
+  (only apply replacements when types match, don't simply )
+
 ### Safety First
 - Preview mode by default
 - Explicit write operations
@@ -228,20 +288,49 @@ Understands the difference between local definitions and imports:
 
 ## Testing Strategy
 
-The test suite covers:
-- CST transformation correctness
-- CLI interface behavior
-- Error handling scenarios
-- Edge cases in Python syntax
-- Cross-module dependency resolution
+The Rust implementation includes comprehensive test coverage:
+- Unit tests for each component
+- Integration tests for complete workflows
+- Regression tests for edge cases and bug fixes
+- Real-world scenario tests (e.g., Dulwich migration)
 - Format preservation validation
+- Type checker integration tests
 
-## Migration to libcst
+## Python/Rust Boundary
 
-The library now uses libcst (Concrete Syntax Tree) instead of Python's built-in ast module for all transformation operations. Key changes:
+### What Stays in Python
 
-- **Format Preservation**: libcst preserves comments, whitespace, and original formatting
-- **Metadata Support**: Position tracking for interactive mode via `cst.MetadataWrapper`
-- **Cleaner Transformations**: Uses `cst.RemovalSentinel.REMOVE` for node removal
-- **Hybrid Architecture**: libcst for migrations, ast still used in decorators.py for runtime warnings
-- **Optional Dependency**: libcst is only required for migration features (`migrate` extra)
+1. **The `@replace_me` decorator** must remain in Python because:
+   - It runs at import time in user code
+   - It needs to emit Python warnings
+   - It must be importable by Python projects
+   - It uses Python's AST for runtime analysis
+
+2. **Runtime functionality**:
+   - Warning emission
+   - Decorator parameter validation
+   - Integration with Python's warning filters
+
+### What Moved to Rust
+
+1. **All CLI commands and file processing**
+2. **AST parsing and transformation** using Ruff parser
+3. **Type checking integration** via LSP/daemon
+4. **Performance-critical operations** like file scanning
+5. **Cross-module dependency analysis**
+
+### Integration Points
+
+- The Rust tool can read decorator metadata from Python files
+- Type checkers are invoked via LSP or daemon protocols
+- PyO3 is used for Python interop when needed
+
+## Performance Improvements
+
+The Rust migration provides significant performance benefits:
+
+- **File Scanning**: ~10x faster with parallel processing
+- **AST Parsing**: Ruff parser is much faster than Python's ast
+- **Memory Usage**: Lower memory footprint
+- **Type Checking**: Efficient caching and batching
+- **Large Codebases**: Scales better with parallel processing
