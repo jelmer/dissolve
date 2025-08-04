@@ -5,9 +5,10 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 
-def find_dissolve_binary():
+def find_dissolve_binary() -> Optional[str]:
     """Find the dissolve Rust binary in PATH or common locations."""
     # First check if it's in PATH
     binary_path = shutil.which("dissolve")
@@ -41,7 +42,7 @@ def find_dissolve_binary():
     return None
 
 
-def print_installation_instructions():
+def print_installation_instructions() -> None:
     """Print instructions for installing the Rust binary."""
     print("The dissolve Rust binary is not installed or not found in PATH.")
     print()
@@ -57,7 +58,7 @@ def print_installation_instructions():
     print("  python -m dissolve [arguments]")
 
 
-def main():
+def main() -> None:
     """Main entry point that either runs the Rust binary or shows installation instructions."""
     binary_path = find_dissolve_binary()
 

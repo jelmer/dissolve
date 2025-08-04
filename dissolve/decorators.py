@@ -236,7 +236,7 @@ def replace_me(
                 return original_init(self, *args, **kwargs)
 
             callable.__init__ = deprecated_init
-            return callable  # type: ignore[return-value]
+            return callable
 
         # Check if the callable is an async function
         elif inspect.iscoroutinefunction(callable):
