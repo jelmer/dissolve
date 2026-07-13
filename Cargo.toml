@@ -27,6 +27,8 @@ ruff_text_size = { git = "https://github.com/astral-sh/ruff", tag = "0.15.21" }
 ruff_db = { git = "https://github.com/astral-sh/ruff", tag = "0.15.21", features = ["os"] }
 ruff_notebook = { git = "https://github.com/astral-sh/ruff", tag = "0.15.21" }
 ty_python_semantic = { git = "https://github.com/astral-sh/ruff", tag = "0.15.21" }
+ty_module_resolver = { git = "https://github.com/astral-sh/ruff", tag = "0.15.21" }
+ty_python_core = { git = "https://github.com/astral-sh/ruff", tag = "0.15.21" }
 ty_project = { git = "https://github.com/astral-sh/ruff", tag = "0.15.21" }
 
 [dev-dependencies]

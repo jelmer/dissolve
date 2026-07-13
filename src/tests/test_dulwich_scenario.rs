@@ -17,7 +17,7 @@ use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
 use crate::TypeIntrospectionMethod;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 /// Helper to create a Python module file

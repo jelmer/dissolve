@@ -104,16 +104,9 @@ fn with_binding_range() -> TextRange {
 }
 
 #[test]
-fn test_unannotated_return_is_not_inferred() {
-    // ty 0.0.59 does not infer un-annotated return types, so `open_resource()`
-    // is Unknown and the `with` binding has no class name. Pyright infers this.
-    // Annotating `-> Resource` makes ty resolve it.
-    assert_eq!(None, infer_at(UNANNOTATED_RETURN, with_binding_range()));
-}
-
-#[test]
-#[ignore = "ty does not yet infer un-annotated return types"]
 fn test_infers_with_statement_binding() {
+    // ty leaves an un-annotated return type as Unknown (astral-sh/ty#128), so this
+    // resolves only because we infer the return type from the function's body.
     assert_eq!(
         Some("example.Resource".to_string()),
         infer_at(UNANNOTATED_RETURN, with_binding_range())
@@ -146,4 +139,75 @@ with open_resource() as r:
         Some("example.Resource".to_string()),
         infer_at(source, range)
     );
+}
+
+#[test]
+fn test_infers_unannotated_factory_return() {
+    let source = r#"
+class Resource:
+    def close(self):
+        pass
+
+def open_resource():
+    return Resource()
+
+x = open_resource()
+x.close()
+"#;
+    // The call itself.
+    let offset = source.find("open_resource()\n").unwrap();
+    let range = TextRange::at(
+        TextSize::try_from(offset).unwrap(),
+        TextSize::from("open_resource()".len() as u32),
+    );
+    assert_eq!(
+        Some("example.Resource".to_string()),
+        infer_at(source, range)
+    );
+}
+
+#[test]
+fn test_with_binding_when_enter_returns_other_class() {
+    // __enter__ returns a different class, so the binding is NOT the context manager.
+    let source = r#"
+class Handle:
+    def close(self):
+        pass
+
+class Opener:
+    def __enter__(self):
+        return Handle()
+
+    def __exit__(self, *args):
+        pass
+
+def make_opener():
+    return Opener()
+
+with make_opener() as h:
+    h.close()
+"#;
+    let offset = source.rfind("h.close").unwrap();
+    let range = TextRange::at(TextSize::try_from(offset).unwrap(), TextSize::from(1));
+    // Must be Handle, never Opener.
+    assert_eq!(Some("example.Handle".to_string()), infer_at(source, range));
+}
+
+#[test]
+fn test_mutually_recursive_factories_terminate() {
+    // Neither function has a return type ty can give us, and they call each other,
+    // so recovering the type must give up rather than recurse forever.
+    let source = r#"
+def a():
+    return b()
+
+def b():
+    return a()
+
+x = a()
+x.close()
+"#;
+    let offset = source.rfind("x.close").unwrap();
+    let range = TextRange::at(TextSize::try_from(offset).unwrap(), TextSize::from(1));
+    assert_eq!(None, infer_at(source, range));
 }

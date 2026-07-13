@@ -705,14 +705,15 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
 
         // Check if this type has the magic method with @replace_me
         let method_key = format!("{}.{}", type_name, magic_method);
-        let method_key_with_module = if !type_name.contains('.') {
-            Some(format!(
-                "{}.{}.{}",
-                self.module_name, type_name, magic_method
-            ))
-        } else {
-            None
-        };
+
+        // The type may be reported qualified (ty gives `module.Class`) while the
+        // replacement is keyed on the module being migrated, so also try the bare
+        // class name under our own module.
+        let class_name = type_name.split('.').next_back().unwrap_or(&type_name);
+        let method_key_with_module = Some(format!(
+            "{}.{}.{}",
+            self.module_name, class_name, magic_method
+        ));
 
         tracing::debug!("Checking for {} replacement: {}", magic_method, method_key);
         if let Some(ref key) = method_key_with_module {
@@ -811,22 +812,13 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                 self.query_type_at_location(location, range, name.id.as_ref())
             }
             Expr::Attribute(attr) => {
-                // For str() magic method, we need the type of the full attribute expression
-                // not the type of the base object
-                // Query at the position of the attribute name itself
+                // This is the type of the attribute itself, not of the object it is
+                // read from: `str(obj.value)` dispatches on the type of `obj.value`.
+                // Falling back to the type of `obj` would migrate the wrong type, so
+                // an attribute whose own type is unknown stays unknown.
                 let attr_start = attr.attr.range().start();
                 let location = self.source_module.line_col_at_offset(attr_start);
-
-                // Try to get the type at this location
-                let result =
-                    self.query_type_at_location(location, attr.range(), attr.attr.as_ref());
-
-                // If that fails, fall back to the standard attribute type lookup
-                if result.is_none() {
-                    self.get_attribute_type(attr)
-                } else {
-                    result
-                }
+                self.query_type_at_location(location, attr.range(), attr.attr.as_ref())
             }
             _ => {
                 // For other expressions, try to get type from their range
