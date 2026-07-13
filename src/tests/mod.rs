@@ -6,6 +6,8 @@ mod test_ast_edge_cases_advanced;
 #[cfg(test)]
 mod test_ast_edge_cases_extended;
 #[cfg(test)]
+mod test_ast_transformer;
+#[cfg(test)]
 mod test_attribute_deprecation;
 #[cfg(test)]
 mod test_bug_fixes;

@@ -98,62 +98,13 @@ class IndexEntry:
         replacement_expr: &str,
         parameters: Vec<&str>,
     ) -> ReplaceInfo {
-        // For test purposes, manually create AST for the common case
-        // In real code, this comes from the actual function definition
+        // The AST is what the replacement expression looks like before placeholder
+        // substitution, so parse it with the {...} placeholders stripped.
         let replacement_ast = if replacement_expr == "{self}.get_worktree().reset_index({tree})" {
-            // Manually create the AST for self.get_worktree().reset_index(tree)
-            // This represents the structure before placeholder substitution
-            use ruff_python_ast::*;
-
-            let self_expr = Expr::Name(ExprName {
-                id: "self".into(),
-                ctx: ExprContext::Load,
-                range: ruff_text_size::TextRange::default(),
-            });
-
-            let get_worktree_call = Expr::Call(ExprCall {
-                func: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(self_expr),
-                    attr: Identifier::new(
-                        "get_worktree".to_string(),
-                        ruff_text_size::TextRange::default(),
-                    ),
-                    ctx: ExprContext::Load,
-                    range: ruff_text_size::TextRange::default(),
-                })),
-                arguments: Arguments {
-                    args: Box::new([]),
-                    keywords: Box::new([]),
-                    range: ruff_text_size::TextRange::default(),
-                },
-                range: ruff_text_size::TextRange::default(),
-            });
-
-            let tree_param = Expr::Name(ExprName {
-                id: "tree".into(),
-                ctx: ExprContext::Load,
-                range: ruff_text_size::TextRange::default(),
-            });
-
-            let reset_index_call = Expr::Call(ExprCall {
-                func: Box::new(Expr::Attribute(ExprAttribute {
-                    value: Box::new(get_worktree_call),
-                    attr: Identifier::new(
-                        "reset_index".to_string(),
-                        ruff_text_size::TextRange::default(),
-                    ),
-                    ctx: ExprContext::Load,
-                    range: ruff_text_size::TextRange::default(),
-                })),
-                arguments: Arguments {
-                    args: Box::new([tree_param]),
-                    keywords: Box::new([]),
-                    range: ruff_text_size::TextRange::default(),
-                },
-                range: ruff_text_size::TextRange::default(),
-            });
-
-            Some(Box::new(reset_index_call))
+            let parsed =
+                ruff_python_parser::parse_expression("self.get_worktree().reset_index(tree)")
+                    .expect("replacement expression should parse");
+            Some(Box::new(parsed.into_expr()))
         } else {
             None
         };
