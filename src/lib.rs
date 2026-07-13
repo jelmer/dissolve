@@ -24,6 +24,7 @@ pub mod ruff_parser;
 pub mod ruff_parser_improved;
 pub mod ruff_remover;
 pub mod scanner;
+pub mod ty_introspect;
 pub mod type_introspection_context;
 pub mod types;
 

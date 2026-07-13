@@ -26,6 +26,8 @@ pub enum TypeIntrospectionMethod {
     MypyDaemon,
     /// Try pyright first, fallback to mypy if it fails
     PyrightWithMypyFallback,
+    /// Use ty for type inference, in-process
+    Ty,
 }
 
 /// Response from user during interactive mode

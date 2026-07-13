@@ -54,6 +54,8 @@ mod test_ruff_parser;
 #[cfg(test)]
 mod test_ruff_replacements;
 #[cfg(test)]
+mod test_ty_introspect;
+#[cfg(test)]
 mod test_type_introspection_failure;
 
 #[cfg(test)]

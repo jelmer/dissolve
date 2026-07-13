@@ -45,6 +45,7 @@ pub struct ImprovedFunctionCallReplacer<'a> {
     inheritance_map: HashMap<String, Vec<String>>, // Maps class names to their base classes
     pyright_client: Option<Rc<RefCell<crate::pyright_lsp::PyrightLspClient>>>, // Reuse client for performance
     mypy_client: Option<Rc<RefCell<crate::mypy_lsp::MypyTypeIntrospector>>>, // Mypy daemon for fallback
+    ty_client: Option<Rc<RefCell<crate::ty_introspect::TyTypeIntrospector>>>, // In-process ty inference
     type_cache: RefCell<HashMap<(u32, u32), Option<String>>>, // Cache type lookups by (line, column)
 }
 
@@ -61,14 +62,14 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
         inheritance_map: HashMap<String, Vec<String>>,
     ) -> Result<Self> {
         // Initialize type introspection clients based on method
-        let (pyright_client, mypy_client) = match type_introspection {
+        let (pyright_client, mypy_client, ty_client) = match type_introspection {
             TypeIntrospectionMethod::PyrightLsp => {
                 // Use None to let pyright use the current working directory
                 match crate::pyright_lsp::PyrightLspClient::new(None) {
                     Ok(mut client) => {
                         // Pre-open the file in pyright
                         client.open_file(&file_path, &source_content)?;
-                        (Some(Rc::new(RefCell::new(client))), None)
+                        (Some(Rc::new(RefCell::new(client))), None, None)
                     }
                     Err(e) => {
                         return Err(anyhow::anyhow!("Failed to initialize pyright LSP client: {}. Type introspection is required for safe migrations.", e));
@@ -77,9 +78,22 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
             }
             TypeIntrospectionMethod::MypyDaemon => {
                 match crate::mypy_lsp::MypyTypeIntrospector::new(None) {
-                    Ok(client) => (None, Some(Rc::new(RefCell::new(client)))),
+                    Ok(client) => (None, Some(Rc::new(RefCell::new(client))), None),
                     Err(e) => {
                         return Err(anyhow::anyhow!("Failed to initialize mypy daemon: {}. Type introspection is required for safe migrations.", e));
+                    }
+                }
+            }
+            TypeIntrospectionMethod::Ty => {
+                match crate::ty_introspect::TyTypeIntrospector::new(None) {
+                    Ok(mut client) => {
+                        // The source may only exist in memory, so hand it to ty directly.
+                        client
+                            .set_file_content(std::path::Path::new(&file_path), &source_content)?;
+                        (None, None, Some(Rc::new(RefCell::new(client))))
+                    }
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("Failed to initialize ty: {}. Type introspection is required for safe migrations.", e));
                     }
                 }
             }
@@ -98,7 +112,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                 if pyright.is_none() && mypy.is_none() {
                     return Err(anyhow::anyhow!("Failed to initialize any type introspection client. Type introspection is required for safe migrations."));
                 }
-                (pyright, mypy)
+                (pyright, mypy, None)
             }
         };
 
@@ -114,6 +128,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
             inheritance_map,
             pyright_client,
             mypy_client,
+            ty_client,
             type_cache: RefCell::new(HashMap::new()),
         };
 
@@ -141,6 +156,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
         // Get the clients from context
         let pyright_client = type_introspection_context.pyright_client();
         let mypy_client = type_introspection_context.mypy_client();
+        let ty_client = type_introspection_context.ty_client();
 
         let mut replacer = Self {
             replacements_info: replacements,
@@ -154,6 +170,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
             inheritance_map,
             pyright_client,
             mypy_client,
+            ty_client,
             type_cache: RefCell::new(HashMap::new()),
         };
 
@@ -286,6 +303,10 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
             _ => return None,
         };
 
+        // ty resolves an expression by its exact range, so it wants the range of
+        // the expression itself rather than the position-based probe above.
+        let expr_range = attr.value.range();
+
         let location = self.source_module.line_col_at_offset(range.start());
 
         // Debug: let's see what text we're looking at
@@ -345,6 +366,18 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                     }
                 } else {
                     Err(anyhow::anyhow!("Mypy client not available"))
+                }
+            }
+            TypeIntrospectionMethod::Ty => {
+                if let Some(ref client_cell) = self.ty_client {
+                    let client = client_cell.borrow();
+                    match client.query_type(std::path::Path::new(&self.file_path), expr_range) {
+                        Ok(Some(type_str)) => Ok(type_str),
+                        Ok(None) => Err(anyhow::anyhow!("No type information available from ty")),
+                        Err(e) => Err(e),
+                    }
+                } else {
+                    Err(anyhow::anyhow!("ty client not available"))
                 }
             }
             TypeIntrospectionMethod::PyrightWithMypyFallback => {
@@ -775,7 +808,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                 // For simple names, use type introspection directly
                 let range = name.range();
                 let location = self.source_module.line_col_at_offset(range.start());
-                self.query_type_at_location(location, name.id.as_ref())
+                self.query_type_at_location(location, range, name.id.as_ref())
             }
             Expr::Attribute(attr) => {
                 // For str() magic method, we need the type of the full attribute expression
@@ -785,7 +818,8 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                 let location = self.source_module.line_col_at_offset(attr_start);
 
                 // Try to get the type at this location
-                let result = self.query_type_at_location(location, attr.attr.as_ref());
+                let result =
+                    self.query_type_at_location(location, attr.range(), attr.attr.as_ref());
 
                 // If that fails, fall back to the standard attribute type lookup
                 if result.is_none() {
@@ -798,13 +832,20 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                 // For other expressions, try to get type from their range
                 let range = expr.range();
                 let location = self.source_module.line_col_at_offset(range.start());
-                self.query_type_at_location(location, "<expression>")
+                self.query_type_at_location(location, range, "<expression>")
             }
         }
     }
 
     /// Query type at a specific location using the abstracted type introspection
-    fn query_type_at_location(&self, location: (u32, u32), variable_name: &str) -> Option<String> {
+    ///
+    /// The LSP backends resolve by `location`; ty resolves by `range`.
+    fn query_type_at_location(
+        &self,
+        location: (u32, u32),
+        range: ruff_text_size::TextRange,
+        variable_name: &str,
+    ) -> Option<String> {
         tracing::debug!(
             "Querying type at {}:{} in {} for variable '{}' using {:?}",
             location.0,
@@ -839,6 +880,18 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                     }
                 } else {
                     Err(anyhow::anyhow!("Pyright client not available"))
+                }
+            }
+            TypeIntrospectionMethod::Ty => {
+                if let Some(ref client_cell) = self.ty_client {
+                    let client = client_cell.borrow();
+                    match client.query_type(std::path::Path::new(&self.file_path), range) {
+                        Ok(Some(type_str)) => Ok(type_str),
+                        Ok(None) => Err(anyhow::anyhow!("No type information available from ty")),
+                        Err(e) => Err(e),
+                    }
+                } else {
+                    Err(anyhow::anyhow!("ty client not available"))
                 }
             }
             TypeIntrospectionMethod::MypyDaemon => {

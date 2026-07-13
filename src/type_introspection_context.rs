@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use crate::mypy_lsp::MypyTypeIntrospector;
 use crate::pyright_lsp::PyrightLspClient;
+use crate::ty_introspect::TyTypeIntrospector;
 use crate::types::TypeIntrospectionMethod;
 
 /// Context that holds type introspection clients across multiple file migrations
@@ -12,6 +13,7 @@ pub struct TypeIntrospectionContext {
     method: TypeIntrospectionMethod,
     pyright_client: Option<Rc<RefCell<PyrightLspClient>>>,
     mypy_client: Option<Rc<RefCell<MypyTypeIntrospector>>>,
+    ty_client: Option<Rc<RefCell<TyTypeIntrospector>>>,
     file_versions: std::collections::HashMap<String, i32>,
     is_shutdown: bool,
 }
@@ -27,15 +29,19 @@ impl TypeIntrospectionContext {
         method: TypeIntrospectionMethod,
         workspace_root: Option<&str>,
     ) -> Result<Self> {
-        let (pyright_client, mypy_client) = match method {
+        let (pyright_client, mypy_client, ty_client) = match method {
             TypeIntrospectionMethod::PyrightLsp => {
                 let client = PyrightLspClient::new(workspace_root)?;
-                (Some(Rc::new(RefCell::new(client))), None)
+                (Some(Rc::new(RefCell::new(client))), None, None)
             }
             TypeIntrospectionMethod::MypyDaemon => {
                 let client = MypyTypeIntrospector::new(None)
                     .map_err(|e| anyhow::anyhow!("Failed to create mypy client: {}", e))?;
-                (None, Some(Rc::new(RefCell::new(client))))
+                (None, Some(Rc::new(RefCell::new(client))), None)
+            }
+            TypeIntrospectionMethod::Ty => {
+                let client = TyTypeIntrospector::new(workspace_root)?;
+                (None, None, Some(Rc::new(RefCell::new(client))))
             }
             TypeIntrospectionMethod::PyrightWithMypyFallback => {
                 let pyright = match PyrightLspClient::new(workspace_root) {
@@ -51,7 +57,7 @@ impl TypeIntrospectionContext {
                         "Failed to initialize any type introspection client"
                     ));
                 }
-                (pyright, mypy)
+                (pyright, mypy, None)
             }
         };
 
@@ -59,6 +65,7 @@ impl TypeIntrospectionContext {
             method,
             pyright_client,
             mypy_client,
+            ty_client,
             file_versions: std::collections::HashMap::new(),
             is_shutdown: false,
         })
@@ -79,6 +86,11 @@ impl TypeIntrospectionContext {
         self.mypy_client.as_ref().map(|rc| rc.clone())
     }
 
+    /// Get a clone of the ty client if available
+    pub fn ty_client(&self) -> Option<Rc<RefCell<TyTypeIntrospector>>> {
+        self.ty_client.as_ref().map(|rc| rc.clone())
+    }
+
     /// Open a file for type introspection
     pub fn open_file(&mut self, file_path: &Path, content: &str) -> Result<()> {
         let path_str = file_path.to_string_lossy();
@@ -86,6 +98,10 @@ impl TypeIntrospectionContext {
 
         if let Some(ref client) = self.pyright_client {
             client.borrow_mut().open_file(&path_str, content)?;
+        }
+
+        if let Some(ref client) = self.ty_client {
+            client.borrow_mut().set_file_content(file_path, content)?;
         }
 
         Ok(())
@@ -113,6 +129,10 @@ impl TypeIntrospectionContext {
                 .borrow_mut()
                 .invalidate_file(&path_str)
                 .map_err(|e| anyhow::anyhow!("Failed to invalidate mypy cache: {}", e))?;
+        }
+
+        if let Some(ref client) = self.ty_client {
+            client.borrow_mut().set_file_content(file_path, content)?;
         }
 
         Ok(())
