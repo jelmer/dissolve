@@ -17,7 +17,7 @@ mod tests {
     use crate::core::{ConstructType, ParameterInfo, ReplaceInfo, RuffDeprecatedFunctionCollector};
     use crate::migrate_ruff::migrate_file;
     use crate::type_introspection_context::TypeIntrospectionContext;
-    use crate::types::TypeIntrospectionMethod;
+
     use std::collections::HashMap;
     use std::path::Path;
 
@@ -29,7 +29,8 @@ mod tests {
 
         // Create type context once and reuse it
         let mut type_context =
-            TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+            TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method())
+                .unwrap();
 
         loop {
             tracing::debug!("Migration iteration {}", iteration);
@@ -269,7 +270,8 @@ def main():
 
         let test_ctx = crate::tests::test_utils::TestContext::new(source);
         let mut type_context =
-            TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+            TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method())
+                .unwrap();
         let migrated = migrate_file(
             source,
             "test_module",

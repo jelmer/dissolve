@@ -17,7 +17,7 @@
 #[cfg(test)]
 mod tests {
     use crate::ruff_parser::{migrate_file_with_ruff, PythonModule};
-    use crate::types::TypeIntrospectionMethod;
+
     use ruff_text_size::Ranged;
 
     #[test]
@@ -81,7 +81,7 @@ result = old_func(5)  # Inline comment
             source,
             "test_module",
             test_ctx.file_path,
-            TypeIntrospectionMethod::PyrightLsp,
+            crate::test_utils::test_type_introspection_method(),
         );
 
         match result {

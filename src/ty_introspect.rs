@@ -14,9 +14,9 @@
 
 //! Type inference using ty, embedded in-process.
 //!
-//! Unlike the pyright and mypy backends, which shell out to a language server
-//! and parse a type name out of the hover text, this queries ty's inference
-//! engine directly and asks the resulting type for its class and module name.
+//! Unlike the pyright backend, which shells out to a language server and parses a
+//! type name out of the hover text, this queries ty's inference engine directly and
+//! asks the resulting type for its class and module name.
 //!
 //! Migration works on source that has been rewritten in memory and may never
 //! have existed on disk, so files under migration are held in an overlay (see

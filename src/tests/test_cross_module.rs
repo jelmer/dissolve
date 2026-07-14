@@ -17,7 +17,6 @@ use crate::dependency_collector::{
 };
 use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
-use crate::TypeIntrospectionMethod;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -93,7 +92,7 @@ def test():
 
     // Create type introspection context with temp directory as workspace
     let mut type_context = TypeIntrospectionContext::new_with_workspace(
-        TypeIntrospectionMethod::PyrightLsp,
+        crate::test_utils::test_type_introspection_method(),
         Some(temp_dir.path().to_str().unwrap()),
     )
     .unwrap();
@@ -172,7 +171,7 @@ def process_with_variable():
 
     // Create type introspection context with temp directory as workspace
     let mut type_context = TypeIntrospectionContext::new_with_workspace(
-        TypeIntrospectionMethod::PyrightLsp,
+        crate::test_utils::test_type_introspection_method(),
         Some(temp_dir.path().to_str().unwrap()),
     )
     .unwrap();
@@ -256,7 +255,7 @@ def create_instance():
 
     // Create type introspection context with temp directory as workspace
     let mut type_context = TypeIntrospectionContext::new_with_workspace(
-        TypeIntrospectionMethod::PyrightLsp,
+        crate::test_utils::test_type_introspection_method(),
         Some(temp_dir.path().to_str().unwrap()),
     )
     .unwrap();
@@ -338,7 +337,7 @@ def calculate():
 
     // Create type introspection context with temp directory as workspace
     let mut type_context = TypeIntrospectionContext::new_with_workspace(
-        TypeIntrospectionMethod::PyrightLsp,
+        crate::test_utils::test_type_introspection_method(),
         Some(temp_dir.path().to_str().unwrap()),
     )
     .unwrap();
@@ -412,7 +411,7 @@ def test():
 
     // Create type introspection context with temp directory as workspace
     let mut type_context = TypeIntrospectionContext::new_with_workspace(
-        TypeIntrospectionMethod::PyrightLsp,
+        crate::test_utils::test_type_introspection_method(),
         Some(temp_dir.path().to_str().unwrap()),
     )
     .unwrap();
@@ -490,7 +489,7 @@ def use_resource():
 
     // Create type introspection context with temp directory as workspace
     let mut type_context = TypeIntrospectionContext::new_with_workspace(
-        TypeIntrospectionMethod::PyrightLsp,
+        crate::test_utils::test_type_introspection_method(),
         Some(temp_dir.path().to_str().unwrap()),
     )
     .unwrap();
@@ -527,7 +526,7 @@ def test():
 
     // Create type introspection context
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
 
     // Migrate with empty replacements (simulating no dependency scanning)
     let result = migrate_file(

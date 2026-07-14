@@ -19,15 +19,11 @@ use serde::{Deserialize, Serialize};
 /// Method to use for type introspection during replacement
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum TypeIntrospectionMethod {
-    /// Use pyright LSP for type inference
-    #[default]
-    PyrightLsp,
-    /// Use mypy daemon for type inference
-    MypyDaemon,
-    /// Try pyright first, fallback to mypy if it fails
-    PyrightWithMypyFallback,
     /// Use ty for type inference, in-process
+    #[default]
     Ty,
+    /// Use pyright LSP for type inference
+    PyrightLsp,
 }
 
 /// Response from user during interactive mode

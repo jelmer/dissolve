@@ -74,7 +74,7 @@ enum Commands {
         interactive: bool,
 
         /// Type introspection method to use
-        #[arg(long, value_enum, default_value = "pyright-mypy")]
+        #[arg(long, value_enum, default_value = "ty")]
         type_introspection: TypeIntrospectionMethodArg,
     },
 
@@ -131,22 +131,19 @@ enum Commands {
 
 #[derive(ValueEnum, Clone)]
 enum TypeIntrospectionMethodArg {
+    /// Infer types with ty, in-process
+    #[value(name = "ty")]
+    Ty,
+    /// Infer types with the pyright language server
     #[value(name = "pyright-lsp")]
     PyrightLsp,
-    #[value(name = "mypy-daemon")]
-    MypyDaemon,
-    #[value(name = "pyright-mypy")]
-    PyrightWithMypyFallback,
 }
 
 impl From<TypeIntrospectionMethodArg> for TypeIntrospectionMethod {
     fn from(arg: TypeIntrospectionMethodArg) -> Self {
         match arg {
+            TypeIntrospectionMethodArg::Ty => TypeIntrospectionMethod::Ty,
             TypeIntrospectionMethodArg::PyrightLsp => TypeIntrospectionMethod::PyrightLsp,
-            TypeIntrospectionMethodArg::MypyDaemon => TypeIntrospectionMethod::MypyDaemon,
-            TypeIntrospectionMethodArg::PyrightWithMypyFallback => {
-                TypeIntrospectionMethod::PyrightWithMypyFallback
-            }
         }
     }
 }

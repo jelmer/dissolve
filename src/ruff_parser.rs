@@ -14,8 +14,7 @@
 
 //! Python parser and CST manipulation using Ruff's parser.
 //!
-//! This module provides a Rust implementation that preserves formatting
-//! and integrates with mypy for type inference.
+//! This module provides a Rust implementation that preserves formatting.
 
 use anyhow::{anyhow, Result};
 use ruff_python_ast::{
@@ -34,7 +33,7 @@ use crate::types::TypeIntrospectionMethod;
 pub struct PythonModule<'a> {
     source: &'a str,
     parsed: Parsed<Mod>,
-    /// Map from byte offset to line/column for mypy integration
+    /// Map from byte offset to line/column, which the pyright backend queries by
     position_map: HashMap<u32, (u32, u32)>,
 }
 
@@ -86,7 +85,7 @@ impl<'a> PythonModule<'a> {
         self.parsed.tokens()
     }
 
-    /// Convert byte offset to line/column for mypy
+    /// Convert byte offset to line/column
     pub fn offset_to_position(&self, offset: TextSize) -> Option<(u32, u32)> {
         self.position_map.get(&offset.to_u32()).copied()
     }

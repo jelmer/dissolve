@@ -15,7 +15,6 @@
 use crate::dependency_collector::collect_deprecated_from_dependencies_with_paths;
 use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
-use crate::TypeIntrospectionMethod;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -126,7 +125,7 @@ def simple_test():
 
     // Create type introspection context with temp directory as workspace
     let mut type_context = TypeIntrospectionContext::new_with_workspace(
-        TypeIntrospectionMethod::PyrightLsp,
+        crate::test_utils::test_type_introspection_method(),
         Some(temp_dir.path().to_str().unwrap()),
     )
     .unwrap();
@@ -230,7 +229,7 @@ def process():
 
     // Create type introspection context with temp directory as workspace
     let mut type_context = TypeIntrospectionContext::new_with_workspace(
-        TypeIntrospectionMethod::PyrightLsp,
+        crate::test_utils::test_type_introspection_method(),
         Some(temp_dir.path().to_str().unwrap()),
     )
     .unwrap();
@@ -315,7 +314,7 @@ def make_commits(repo_path: str, messages: List[str], author: Optional[str] = No
 
     // Create type introspection context with temp directory as workspace
     let mut type_context = TypeIntrospectionContext::new_with_workspace(
-        TypeIntrospectionMethod::PyrightLsp,
+        crate::test_utils::test_type_introspection_method(),
         Some(temp_dir.path().to_str().unwrap()),
     )
     .unwrap();

@@ -17,7 +17,6 @@
 #[cfg(test)]
 mod tests {
     use crate::ruff_parser_improved::migrate_file_with_improved_ruff;
-    use crate::types::TypeIntrospectionMethod;
 
     #[test]
     fn test_simple_function_replacement() {
@@ -36,7 +35,7 @@ result = old_func(5, 10)
             source,
             "test_module",
             test_ctx.file_path,
-            TypeIntrospectionMethod::PyrightLsp,
+            crate::test_utils::test_type_introspection_method(),
         )
         .unwrap();
 
@@ -64,7 +63,7 @@ result = obj.old_method(5)
             source,
             "test_module",
             test_ctx.file_path,
-            TypeIntrospectionMethod::PyrightLsp,
+            crate::test_utils::test_type_introspection_method(),
         )
         .unwrap();
 
@@ -94,7 +93,7 @@ old_func(1, 2, 3, x=4, y=5)
             source,
             "test_module",
             test_ctx.file_path,
-            TypeIntrospectionMethod::PyrightLsp,
+            crate::test_utils::test_type_introspection_method(),
         )
         .unwrap();
 
@@ -126,7 +125,7 @@ print(result)
             source,
             "test_module",
             test_ctx.file_path,
-            TypeIntrospectionMethod::PyrightLsp,
+            crate::test_utils::test_type_introspection_method(),
         )
         .unwrap();
 
@@ -162,7 +161,7 @@ result = old_outer(old_inner(5))
                 &result,
                 "test_module",
                 test_ctx.file_path,
-                TypeIntrospectionMethod::PyrightLsp,
+                crate::test_utils::test_type_introspection_method(),
             )
             .unwrap();
 
@@ -194,7 +193,7 @@ obj = OldClass(5)
             source,
             "test_module",
             test_ctx.file_path,
-            TypeIntrospectionMethod::PyrightLsp,
+            crate::test_utils::test_type_introspection_method(),
         )
         .unwrap();
 

@@ -44,7 +44,6 @@ pub struct ImprovedFunctionCallReplacer<'a> {
     source_content: String,
     inheritance_map: HashMap<String, Vec<String>>, // Maps class names to their base classes
     pyright_client: Option<Rc<RefCell<crate::pyright_lsp::PyrightLspClient>>>, // Reuse client for performance
-    mypy_client: Option<Rc<RefCell<crate::mypy_lsp::MypyTypeIntrospector>>>, // Mypy daemon for fallback
     ty_client: Option<Rc<RefCell<crate::ty_introspect::TyTypeIntrospector>>>, // In-process ty inference
     type_cache: RefCell<HashMap<(u32, u32), Option<String>>>, // Cache type lookups by (line, column)
 }
@@ -62,57 +61,32 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
         inheritance_map: HashMap<String, Vec<String>>,
     ) -> Result<Self> {
         // Initialize type introspection clients based on method
-        let (pyright_client, mypy_client, ty_client) = match type_introspection {
-            TypeIntrospectionMethod::PyrightLsp => {
-                // Use None to let pyright use the current working directory
-                match crate::pyright_lsp::PyrightLspClient::new(None) {
-                    Ok(mut client) => {
-                        // Pre-open the file in pyright
-                        client.open_file(&file_path, &source_content)?;
-                        (Some(Rc::new(RefCell::new(client))), None, None)
-                    }
-                    Err(e) => {
-                        return Err(anyhow::anyhow!("Failed to initialize pyright LSP client: {}. Type introspection is required for safe migrations.", e));
-                    }
-                }
-            }
-            TypeIntrospectionMethod::MypyDaemon => {
-                match crate::mypy_lsp::MypyTypeIntrospector::new(None) {
-                    Ok(client) => (None, Some(Rc::new(RefCell::new(client))), None),
-                    Err(e) => {
-                        return Err(anyhow::anyhow!("Failed to initialize mypy daemon: {}. Type introspection is required for safe migrations.", e));
-                    }
-                }
-            }
+        let (pyright_client, ty_client) = match type_introspection {
             TypeIntrospectionMethod::Ty => {
                 match crate::ty_introspect::TyTypeIntrospector::new(None) {
                     Ok(mut client) => {
                         // The source may only exist in memory, so hand it to ty directly.
                         client
                             .set_file_content(std::path::Path::new(&file_path), &source_content)?;
-                        (None, None, Some(Rc::new(RefCell::new(client))))
+                        (None, Some(Rc::new(RefCell::new(client))))
                     }
                     Err(e) => {
                         return Err(anyhow::anyhow!("Failed to initialize ty: {}. Type introspection is required for safe migrations.", e));
                     }
                 }
             }
-            TypeIntrospectionMethod::PyrightWithMypyFallback => {
-                let pyright = match crate::pyright_lsp::PyrightLspClient::new(None) {
+            TypeIntrospectionMethod::PyrightLsp => {
+                // Use None to let pyright use the current working directory
+                match crate::pyright_lsp::PyrightLspClient::new(None) {
                     Ok(mut client) => {
-                        client.open_file(&file_path, &source_content).ok();
-                        Some(Rc::new(RefCell::new(client)))
+                        // Pre-open the file in pyright
+                        client.open_file(&file_path, &source_content)?;
+                        (Some(Rc::new(RefCell::new(client))), None)
                     }
-                    Err(_) => None,
-                };
-                let mypy = match crate::mypy_lsp::MypyTypeIntrospector::new(None) {
-                    Ok(client) => Some(Rc::new(RefCell::new(client))),
-                    Err(_) => None,
-                };
-                if pyright.is_none() && mypy.is_none() {
-                    return Err(anyhow::anyhow!("Failed to initialize any type introspection client. Type introspection is required for safe migrations."));
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("Failed to initialize pyright LSP client: {}. Type introspection is required for safe migrations.", e));
+                    }
                 }
-                (pyright, mypy, None)
             }
         };
 
@@ -127,7 +101,6 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
             source_content,
             inheritance_map,
             pyright_client,
-            mypy_client,
             ty_client,
             type_cache: RefCell::new(HashMap::new()),
         };
@@ -155,7 +128,6 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
 
         // Get the clients from context
         let pyright_client = type_introspection_context.pyright_client();
-        let mypy_client = type_introspection_context.mypy_client();
         let ty_client = type_introspection_context.ty_client();
 
         let mut replacer = Self {
@@ -169,7 +141,6 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
             source_content,
             inheritance_map,
             pyright_client,
-            mypy_client,
             ty_client,
             type_cache: RefCell::new(HashMap::new()),
         };
@@ -351,23 +322,6 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                     Err(anyhow::anyhow!("Pyright client not available"))
                 }
             }
-            TypeIntrospectionMethod::MypyDaemon => {
-                // Use the cached mypy client
-                if let Some(ref client_cell) = self.mypy_client {
-                    let mut client = client_cell.borrow_mut();
-                    match client.get_type_at_position(
-                        &self.file_path,
-                        location.0 as usize,
-                        location.1 as usize,
-                    ) {
-                        Ok(Some(type_str)) => Ok(type_str),
-                        Ok(None) => Err(anyhow::anyhow!("No type information available from mypy")),
-                        Err(e) => Err(anyhow::anyhow!("Mypy error: {}", e)),
-                    }
-                } else {
-                    Err(anyhow::anyhow!("Mypy client not available"))
-                }
-            }
             TypeIntrospectionMethod::Ty => {
                 if let Some(ref client_cell) = self.ty_client {
                     let client = client_cell.borrow();
@@ -379,42 +333,6 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                 } else {
                     Err(anyhow::anyhow!("ty client not available"))
                 }
-            }
-            TypeIntrospectionMethod::PyrightWithMypyFallback => {
-                // Try pyright first
-                let mut result = if let Some(ref client_cell) = self.pyright_client {
-                    let mut client = client_cell.borrow_mut();
-                    match client.query_type(
-                        &self.file_path,
-                        &self.source_content,
-                        location.0,
-                        location.1,
-                    ) {
-                        Ok(Some(type_str)) => Ok(type_str),
-                        Ok(None) => Err(anyhow::anyhow!("No type from pyright")),
-                        Err(e) => Err(e),
-                    }
-                } else {
-                    Err(anyhow::anyhow!("Pyright not available"))
-                };
-
-                // If pyright failed, try mypy
-                if result.is_err() {
-                    if let Some(ref client_cell) = self.mypy_client {
-                        let mut client = client_cell.borrow_mut();
-                        result = match client.get_type_at_position(
-                            &self.file_path,
-                            location.0 as usize,
-                            location.1 as usize,
-                        ) {
-                            Ok(Some(type_str)) => Ok(type_str),
-                            Ok(None) => result, // Keep original error
-                            Err(e) => Err(anyhow::anyhow!("Mypy error: {}", e)),
-                        };
-                    }
-                }
-
-                result
             }
         };
 
@@ -885,57 +803,6 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                 } else {
                     Err(anyhow::anyhow!("ty client not available"))
                 }
-            }
-            TypeIntrospectionMethod::MypyDaemon => {
-                if let Some(ref client_cell) = self.mypy_client {
-                    let mut client = client_cell.borrow_mut();
-                    match client.get_type_at_position(
-                        &self.file_path,
-                        location.0 as usize,
-                        location.1 as usize,
-                    ) {
-                        Ok(Some(type_str)) => Ok(type_str),
-                        Ok(None) => Err(anyhow::anyhow!("No type information available from mypy")),
-                        Err(e) => Err(anyhow::anyhow!("Mypy error: {}", e)),
-                    }
-                } else {
-                    Err(anyhow::anyhow!("Mypy client not available"))
-                }
-            }
-            TypeIntrospectionMethod::PyrightWithMypyFallback => {
-                let mut result = if let Some(ref client_cell) = self.pyright_client {
-                    let mut client = client_cell.borrow_mut();
-                    match client.query_type(
-                        &self.file_path,
-                        &self.source_content,
-                        location.0,
-                        location.1,
-                    ) {
-                        Ok(Some(type_str)) => Ok(type_str),
-                        Ok(None) => Err(anyhow::anyhow!("No type from pyright")),
-                        Err(e) => Err(e),
-                    }
-                } else {
-                    Err(anyhow::anyhow!("Pyright not available"))
-                };
-
-                // If pyright failed, try mypy
-                if result.is_err() {
-                    if let Some(ref client_cell) = self.mypy_client {
-                        let mut client = client_cell.borrow_mut();
-                        result = match client.get_type_at_position(
-                            &self.file_path,
-                            location.0 as usize,
-                            location.1 as usize,
-                        ) {
-                            Ok(Some(type_str)) => Ok(type_str),
-                            Ok(None) => result, // Keep original error
-                            Err(e) => Err(anyhow::anyhow!("Mypy error: {}", e)),
-                        };
-                    }
-                }
-
-                result
             }
         };
 
