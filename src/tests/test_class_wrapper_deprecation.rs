@@ -14,7 +14,7 @@
 
 use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
-use crate::{ConstructType, RuffDeprecatedFunctionCollector, TypeIntrospectionMethod};
+use crate::{ConstructType, RuffDeprecatedFunctionCollector};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -80,7 +80,7 @@ services = [UserService(url) for url in ["db1", "db2"]]
     println!("Replacements: {:?}", result.replacements);
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -131,7 +131,7 @@ db = LegacyDB("postgres://localhost", timeout=15)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -194,7 +194,7 @@ api_dict = {name: OldAPI(name) for name in ["a", "b"]}
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",

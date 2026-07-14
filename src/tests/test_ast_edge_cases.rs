@@ -2,7 +2,7 @@
 
 use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
-use crate::{RuffDeprecatedFunctionCollector, TypeIntrospectionMethod};
+use crate::RuffDeprecatedFunctionCollector;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -24,7 +24,7 @@ result = process_nested(my_obj.nested.deep.structure)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -60,7 +60,7 @@ result3 = process_indexed(nested["data"], "id")
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -97,7 +97,7 @@ result2 = apply_transform(lambda x, y: x + y, (10, 20))
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -135,7 +135,7 @@ result4 = process_collection((x for x in items))  # generator expression
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -175,7 +175,7 @@ result3 = process_conditional(a if condition else b, c if condition else d)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -214,7 +214,7 @@ result3 = log_message("Total: {}".format(count))
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -253,7 +253,7 @@ result4 = process_slice(my_string[start:end:step])
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -293,7 +293,7 @@ result4 = check_condition(a in list1 and b not in list2)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -337,7 +337,7 @@ gen2 = old_delegator([4, 5, 6])
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -379,7 +379,7 @@ data = [process_with_side_effect(y) for x in items if (y := transform(x)) > 0]
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -418,7 +418,7 @@ result = process_typed(numbers, settings)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -458,7 +458,7 @@ result = process_many(
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -500,7 +500,7 @@ result = safe_process(get_or_default("key"), "default")
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -534,7 +534,7 @@ result2 = process_sets(set(list1), set(list2))
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -573,7 +573,7 @@ result3 = process_bytes(b'\xde\xad\xbe\xef')
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -613,7 +613,7 @@ result = apply_decorator(decorator_factory("test"), lambda x: x)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",

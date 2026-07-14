@@ -5,7 +5,7 @@ mod tests {
     use crate::migrate_ruff::migrate_file;
     use crate::tests::test_utils::TestContext;
     use crate::type_introspection_context::TypeIntrospectionContext;
-    use crate::types::TypeIntrospectionMethod;
+
     use std::collections::HashMap;
     use std::path::Path;
 
@@ -34,7 +34,8 @@ obj.another_method()
 
         let test_ctx = TestContext::new(source);
         let mut type_context =
-            TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+            TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method())
+                .unwrap();
         let result = migrate_file(
             source,
             "test_module",
@@ -75,7 +76,8 @@ obj.replaced_method()
 
         let test_ctx = TestContext::new(source);
         let mut type_context =
-            TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+            TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method())
+                .unwrap();
         let result = migrate_file(
             source,
             "test_module",

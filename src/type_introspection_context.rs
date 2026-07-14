@@ -3,15 +3,15 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use crate::mypy_lsp::MypyTypeIntrospector;
 use crate::pyright_lsp::PyrightLspClient;
+use crate::ty_introspect::TyTypeIntrospector;
 use crate::types::TypeIntrospectionMethod;
 
 /// Context that holds type introspection clients across multiple file migrations
 pub struct TypeIntrospectionContext {
     method: TypeIntrospectionMethod,
     pyright_client: Option<Rc<RefCell<PyrightLspClient>>>,
-    mypy_client: Option<Rc<RefCell<MypyTypeIntrospector>>>,
+    ty_client: Option<Rc<RefCell<TyTypeIntrospector>>>,
     file_versions: std::collections::HashMap<String, i32>,
     is_shutdown: bool,
 }
@@ -27,38 +27,21 @@ impl TypeIntrospectionContext {
         method: TypeIntrospectionMethod,
         workspace_root: Option<&str>,
     ) -> Result<Self> {
-        let (pyright_client, mypy_client) = match method {
+        let (pyright_client, ty_client) = match method {
+            TypeIntrospectionMethod::Ty => {
+                let client = TyTypeIntrospector::new(workspace_root)?;
+                (None, Some(Rc::new(RefCell::new(client))))
+            }
             TypeIntrospectionMethod::PyrightLsp => {
                 let client = PyrightLspClient::new(workspace_root)?;
                 (Some(Rc::new(RefCell::new(client))), None)
-            }
-            TypeIntrospectionMethod::MypyDaemon => {
-                let client = MypyTypeIntrospector::new(None)
-                    .map_err(|e| anyhow::anyhow!("Failed to create mypy client: {}", e))?;
-                (None, Some(Rc::new(RefCell::new(client))))
-            }
-            TypeIntrospectionMethod::PyrightWithMypyFallback => {
-                let pyright = match PyrightLspClient::new(workspace_root) {
-                    Ok(client) => Some(Rc::new(RefCell::new(client))),
-                    Err(_) => None,
-                };
-                let mypy = match MypyTypeIntrospector::new(workspace_root) {
-                    Ok(client) => Some(Rc::new(RefCell::new(client))),
-                    Err(_) => None,
-                };
-                if pyright.is_none() && mypy.is_none() {
-                    return Err(anyhow::anyhow!(
-                        "Failed to initialize any type introspection client"
-                    ));
-                }
-                (pyright, mypy)
             }
         };
 
         Ok(Self {
             method,
             pyright_client,
-            mypy_client,
+            ty_client,
             file_versions: std::collections::HashMap::new(),
             is_shutdown: false,
         })
@@ -74,9 +57,9 @@ impl TypeIntrospectionContext {
         self.pyright_client.as_ref().map(|rc| rc.clone())
     }
 
-    /// Get a clone of the mypy client if available
-    pub fn mypy_client(&self) -> Option<Rc<RefCell<MypyTypeIntrospector>>> {
-        self.mypy_client.as_ref().map(|rc| rc.clone())
+    /// Get a clone of the ty client if available
+    pub fn ty_client(&self) -> Option<Rc<RefCell<TyTypeIntrospector>>> {
+        self.ty_client.as_ref().map(|rc| rc.clone())
     }
 
     /// Open a file for type introspection
@@ -86,6 +69,10 @@ impl TypeIntrospectionContext {
 
         if let Some(ref client) = self.pyright_client {
             client.borrow_mut().open_file(&path_str, content)?;
+        }
+
+        if let Some(ref client) = self.ty_client {
+            client.borrow_mut().set_file_content(file_path, content)?;
         }
 
         Ok(())
@@ -108,11 +95,8 @@ impl TypeIntrospectionContext {
                 .update_file(&path_str, content, version)?;
         }
 
-        if let Some(ref client) = self.mypy_client {
-            client
-                .borrow_mut()
-                .invalidate_file(&path_str)
-                .map_err(|e| anyhow::anyhow!("Failed to invalidate mypy cache: {}", e))?;
+        if let Some(ref client) = self.ty_client {
+            client.borrow_mut().set_file_content(file_path, content)?;
         }
 
         Ok(())
@@ -131,13 +115,6 @@ impl TypeIntrospectionContext {
 
         if let Some(ref client) = self.pyright_client {
             client.borrow_mut().shutdown()?;
-        }
-
-        if let Some(ref client) = self.mypy_client {
-            client
-                .borrow_mut()
-                .stop_daemon()
-                .map_err(|e| anyhow::anyhow!("Failed to stop mypy daemon: {}", e))?;
         }
 
         self.is_shutdown = true;

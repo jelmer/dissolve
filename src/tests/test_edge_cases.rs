@@ -14,7 +14,7 @@
 
 use crate::migrate_ruff::migrate_file;
 use crate::type_introspection_context::TypeIntrospectionContext;
-use crate::{RuffDeprecatedFunctionCollector, TypeIntrospectionMethod};
+use crate::RuffDeprecatedFunctionCollector;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -34,7 +34,7 @@ result = await old_async_func(10)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -70,7 +70,7 @@ result = await obj.old_async_method(10)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -104,7 +104,7 @@ result = old_func(1, 2, 3, y=4, z=5)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -139,7 +139,7 @@ result1 = obj.old_method(10)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -177,7 +177,7 @@ result = old_func(expensive_call1(), expensive_call2())
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -221,7 +221,7 @@ obj.old_prop = 42
     println!("Collected replacements: {:?}", result.replacements);
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -272,7 +272,7 @@ result2 = inner.old_method()
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -306,7 +306,7 @@ result = list(gen)
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -342,7 +342,7 @@ finally:
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -380,7 +380,7 @@ docstring = '''This function uses old_func internally'''
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -414,7 +414,7 @@ result = old_func("a", "bb", "x", "y")
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",
@@ -450,7 +450,7 @@ data = [old_func(x) for x in range(3) if (result := old_func(x)) > 0]
     let result = collector.collect_from_source(source.to_string()).unwrap();
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let migrated = migrate_file(
         source,
         "test_module",

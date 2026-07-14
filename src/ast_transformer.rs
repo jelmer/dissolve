@@ -277,13 +277,20 @@ fn ast_to_source(expr: &Expr) -> String {
         }
 
         Expr::DictComp(comp) => {
-            // Handle dict comprehensions
-            format!(
-                "{{{}: {} {}}}",
-                ast_to_source(&comp.key),
-                ast_to_source(&comp.value),
-                generators_to_string(&comp.generators)
-            )
+            // A missing key means dict unpacking: {**value for ...}
+            match &comp.key {
+                Some(key) => format!(
+                    "{{{}: {} {}}}",
+                    ast_to_source(key),
+                    ast_to_source(&comp.value),
+                    generators_to_string(&comp.generators)
+                ),
+                None => format!(
+                    "{{**{} {}}}",
+                    ast_to_source(&comp.value),
+                    generators_to_string(&comp.generators)
+                ),
+            }
         }
 
         Expr::Generator(gen) => {
@@ -328,7 +335,7 @@ fn ast_to_source(expr: &Expr) -> String {
             // Process each element of the f-string
             for part in fstring.value.elements() {
                 match part {
-                    ruff_python_ast::FStringElement::Literal(lit) => {
+                    ruff_python_ast::InterpolatedStringElement::Literal(lit) => {
                         // Escape special characters in the literal part
                         let escaped = lit
                             .value
@@ -343,17 +350,19 @@ fn ast_to_source(expr: &Expr) -> String {
                             .collect::<String>();
                         result.push_str(&escaped);
                     }
-                    ruff_python_ast::FStringElement::Expression(expr) => {
+                    ruff_python_ast::InterpolatedStringElement::Interpolation(expr) => {
                         result.push('{');
                         result.push_str(&ast_to_source(&expr.expression));
                         if let Some(spec) = &expr.format_spec {
                             result.push(':');
                             for spec_elem in &spec.elements {
                                 match spec_elem {
-                                    ruff_python_ast::FStringElement::Literal(lit) => {
+                                    ruff_python_ast::InterpolatedStringElement::Literal(lit) => {
                                         result.push_str(&lit.value);
                                     }
-                                    ruff_python_ast::FStringElement::Expression(e) => {
+                                    ruff_python_ast::InterpolatedStringElement::Interpolation(
+                                        e,
+                                    ) => {
                                         result.push('{');
                                         result.push_str(&ast_to_source(&e.expression));
                                         result.push('}');
@@ -446,6 +455,7 @@ fn transform_expr_with_all_params(
                             id: value.clone().into(),
                             ctx: name.ctx,
                             range: name.range,
+                            node_index: ruff_python_ast::AtomicNodeIndex::default(),
                         })
                     } else {
                         // For more complex expressions, we'd need to parse them
@@ -578,6 +588,8 @@ fn transform_expr_with_all_params(
                                                 )),
                                                 value: value_expr.into_expr(),
                                                 range: ruff_text_size::TextRange::default(),
+                                                node_index:
+                                                    ruff_python_ast::AtomicNodeIndex::default(),
                                             };
                                             new_keywords.push(keyword);
                                         }
@@ -590,6 +602,8 @@ fn transform_expr_with_all_params(
                                                 arg: None,
                                                 value: value_expr.into_expr(),
                                                 range: ruff_text_size::TextRange::default(),
+                                                node_index:
+                                                    ruff_python_ast::AtomicNodeIndex::default(),
                                             };
                                             new_keywords.push(keyword);
                                         }
@@ -614,8 +628,9 @@ fn transform_expr_with_all_params(
 
             new_call.arguments = Arguments {
                 args: new_args.into_boxed_slice(),
-                keywords: new_keywords.into_boxed_slice(),
+                keywords: new_keywords.into_iter().collect(),
                 range: call.arguments.range,
+                node_index: ruff_python_ast::AtomicNodeIndex::default(),
             };
 
             Expr::Call(new_call)

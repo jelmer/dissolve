@@ -44,6 +44,18 @@ To avoid test timeouts, run with limited parallelism:
 
 /// Create a type introspection context for tests
 /// This creates a new context each time - consider using the shared pool instead
+///
+/// Set `DISSOLVE_TEST_TYPE_INTROSPECTION=pyright` to run the suite against pyright
+/// instead of ty, so the two backends can be compared on the same tests.
 pub fn create_test_type_context() -> Result<TypeIntrospectionContext, String> {
-    TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).map_err(|e| e.to_string())
+    TypeIntrospectionContext::new(test_type_introspection_method()).map_err(|e| e.to_string())
+}
+
+/// The type introspection method the test suite should use.
+pub fn test_type_introspection_method() -> TypeIntrospectionMethod {
+    match std::env::var("DISSOLVE_TEST_TYPE_INTROSPECTION").as_deref() {
+        Ok("pyright") => TypeIntrospectionMethod::PyrightLsp,
+        Ok("ty") | Err(_) => TypeIntrospectionMethod::Ty,
+        Ok(other) => panic!("unknown DISSOLVE_TEST_TYPE_INTROSPECTION value: {other}"),
+    }
 }

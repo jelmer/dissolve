@@ -28,8 +28,7 @@ result2 = old_func(10)
 "#;
 
     // Create a type introspection context
-    let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightWithMypyFallback).unwrap();
+    let mut type_context = TypeIntrospectionContext::new(TypeIntrospectionMethod::Ty).unwrap();
 
     // Simulate opening both files initially
     type_context
@@ -86,7 +85,7 @@ def example():
 "#;
 
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
 
     // Open a file
     type_context

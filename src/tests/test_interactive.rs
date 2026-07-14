@@ -15,7 +15,6 @@
 use crate::core::types::{ConstructType, ParameterInfo, ReplaceInfo};
 use crate::migrate_ruff::migrate_file_interactive;
 use crate::type_introspection_context::TypeIntrospectionContext;
-use crate::types::TypeIntrospectionMethod;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -36,7 +35,7 @@ def test_func():
     // Since interactive mode isn't implemented yet, it should work like non-interactive
     let test_ctx = crate::tests::test_utils::TestContext::new(source);
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let result = migrate_file_interactive(
         source,
         "test_module",
@@ -95,7 +94,7 @@ def test_func():
 
     let test_ctx = crate::tests::test_utils::TestContext::new(source);
     let mut type_context =
-        TypeIntrospectionContext::new(TypeIntrospectionMethod::PyrightLsp).unwrap();
+        TypeIntrospectionContext::new(crate::test_utils::test_type_introspection_method()).unwrap();
     let result = migrate_file_interactive(
         source,
         "test_module",

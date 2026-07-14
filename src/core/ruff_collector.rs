@@ -20,7 +20,7 @@ use ruff_python_ast::{
     visitor::{self, Visitor},
     Decorator, Expr, Mod, Stmt, StmtClassDef, StmtFunctionDef,
 };
-use ruff_python_parser::{parse, Mode};
+use ruff_python_parser::{parse, Mode, ParseOptions};
 use ruff_text_size::Ranged;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -57,7 +57,7 @@ impl RuffDeprecatedFunctionCollector {
     /// Collect from source string
     pub fn collect_from_source(mut self, source: String) -> Result<CollectorResult> {
         self.source = source;
-        let parsed = parse(&self.source, Mode::Module)?;
+        let parsed = parse(&self.source, ParseOptions::from(Mode::Module))?;
 
         match parsed.into_syntax() {
             Mod::Module(module) => {
@@ -325,11 +325,13 @@ impl RuffDeprecatedFunctionCollector {
                     value: ruff_python_ast::StringLiteralValue::single(
                         ruff_python_ast::StringLiteral {
                             value: "".into(),
-                            flags: ruff_python_ast::StringLiteralFlags::default(),
+                            flags: ruff_python_ast::StringLiteralFlags::empty(),
                             range: ruff_text_size::TextRange::default(),
+                            node_index: ruff_python_ast::AtomicNodeIndex::default(),
                         },
                     ),
                     range: ruff_text_size::TextRange::default(),
+                    node_index: ruff_python_ast::AtomicNodeIndex::default(),
                 }),
             ));
         }

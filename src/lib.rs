@@ -17,13 +17,13 @@ pub mod checker;
 pub mod core;
 pub mod dependency_collector;
 pub mod migrate_ruff;
-pub mod mypy_lsp;
 pub mod pyright_lsp;
 pub mod remover;
 pub mod ruff_parser;
 pub mod ruff_parser_improved;
 pub mod ruff_remover;
 pub mod scanner;
+pub mod ty_introspect;
 pub mod type_introspection_context;
 pub mod types;
 
