@@ -166,7 +166,7 @@ fn find_module_file(module_path: &str) -> Option<String> {
 fn find_module_file_with_paths(module_path: &str, additional_paths: &[String]) -> Option<String> {
     use pyo3::prelude::*;
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         // First check additional paths if provided (for test environments)
         if !additional_paths.is_empty() {
             tracing::debug!(

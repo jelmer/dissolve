@@ -384,7 +384,7 @@ impl RuffDeprecatedFunctionCollector {
     fn get_all_builtins() -> HashSet<String> {
         use pyo3::prelude::*;
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let mut builtin_names = HashSet::new();
 
             // Get the builtins module
