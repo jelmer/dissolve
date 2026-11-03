@@ -211,3 +211,70 @@ x.close()
     let range = TextRange::at(TextSize::try_from(offset).unwrap(), TextSize::from(1));
     assert_eq!(None, infer_at(source, range));
 }
+
+#[test]
+fn test_no_class_for_tuple_unpacking_target() {
+    // `resp` is one element of the returned tuple, not the tuple itself.
+    let source = r#"
+class Resp:
+    def close(self):
+        pass
+
+def request():
+    return Resp(), 1
+
+resp, n = request()
+resp.close()
+"#;
+    let offset = source.rfind("resp.close").unwrap();
+    let range = TextRange::at(TextSize::try_from(offset).unwrap(), TextSize::from(4));
+    assert_eq!(None, infer_at(source, range));
+}
+
+#[test]
+fn test_annotated_return_not_inferred_from_body() {
+    // The annotation says what the function returns; its body only ever
+    // returning None must not be taken as the answer.
+    let source = r#"
+class Graph:
+    def parents(self):
+        pass
+
+class Store:
+    def graph(self) -> "Graph | None":
+        return None
+
+def f(store: Store):
+    g = store.graph()
+    g.parents()
+"#;
+    let offset = source.rfind("g.parents").unwrap();
+    let range = TextRange::at(TextSize::try_from(offset).unwrap(), TextSize::from(1));
+    assert_eq!(None, infer_at(source, range));
+}
+
+#[test]
+fn test_no_class_for_with_tuple_target() {
+    // `h` is one element of what `__enter__` returns, not the whole tuple.
+    let source = r#"
+class Handle:
+    def close(self):
+        pass
+
+class Opener:
+    def __enter__(self):
+        return Handle(), 1
+
+    def __exit__(self, *args):
+        pass
+
+def make_opener():
+    return Opener()
+
+with make_opener() as (h, n):
+    h.close()
+"#;
+    let offset = source.rfind("h.close").unwrap();
+    let range = TextRange::at(TextSize::try_from(offset).unwrap(), TextSize::from(1));
+    assert_eq!(None, infer_at(source, range));
+}
