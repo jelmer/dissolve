@@ -29,13 +29,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use dissolve_python::dependency_collector::{
+    collect_deprecated_from_dependencies_with_paths, DependencyCollectionResult,
+};
 use dissolve_python::migrate_ruff;
 use dissolve_python::type_introspection_context::TypeIntrospectionContext;
 use dissolve_python::TypeIntrospectionMethod;
-use dissolve_python::{
-    check_file, collect_deprecated_from_dependencies, remove_from_file,
-    RuffDeprecatedFunctionCollector,
-};
+use dissolve_python::{check_file, remove_from_file, RuffDeprecatedFunctionCollector};
 
 #[derive(Parser)]
 #[command(name = "dissolve")]
@@ -218,9 +218,13 @@ fn expand_paths(paths: &[String], as_module: bool) -> Result<Vec<PathBuf>> {
     Ok(expanded.into_iter().collect())
 }
 
-/// Detect the module name from a file path
-fn detect_module_name(file_path: &Path) -> String {
-    let mut current_dir = file_path.parent().unwrap_or(Path::new("."));
+/// Detect the module name of a file, and the directory its top-level package is in.
+///
+/// That directory is where the file's own imports resolve, so it is searched for
+/// dependencies before any installed copy of the same package.
+fn detect_module(file_path: &Path) -> Result<(String, PathBuf)> {
+    let file_path = std::path::absolute(file_path)?;
+    let mut current_dir = file_path.parent().unwrap_or(Path::new("/"));
     let mut module_parts = Vec::new();
 
     // Add file stem if it's not __init__
@@ -248,8 +252,10 @@ fn detect_module_name(file_path: &Path) -> String {
         }
     }
 
+    let root = current_dir.to_path_buf();
+
     // Return the full module name if we found package structure
-    if !module_parts.is_empty() {
+    let name = if !module_parts.is_empty() {
         module_parts.join(".")
     } else {
         // Fallback to just the filename stem
@@ -257,7 +263,8 @@ fn detect_module_name(file_path: &Path) -> String {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default()
-    }
+    };
+    Ok((name, root))
 }
 
 /// Process files with common check/write logic
@@ -346,17 +353,24 @@ fn main() -> Result<()> {
             let mut needs_changes = false;
             for filepath in &files {
                 let original = fs::read_to_string(filepath)?;
-                let module_name = detect_module_name(filepath);
+                let (module_name, root) = detect_module(filepath)?;
 
                 let result = if interactive {
                     interactive_migrate_file_content(
                         &original,
                         &module_name,
+                        &root,
                         filepath,
                         &mut type_context,
                     )?
                 } else {
-                    migrate_file_content(&original, &module_name, filepath, &mut type_context)?
+                    migrate_file_content(
+                        &original,
+                        &module_name,
+                        &root,
+                        filepath,
+                        &mut type_context,
+                    )?
                 };
 
                 let has_changes = result.as_ref().is_some_and(|r| r != &original);
@@ -445,7 +459,7 @@ fn main() -> Result<()> {
 
             for filepath in &files {
                 let source = fs::read_to_string(filepath)?;
-                let module_name = detect_module_name(filepath);
+                let (module_name, _) = detect_module(filepath)?;
                 let result = check_file(&source, &module_name, filepath)?;
                 if result.success {
                     if !result.checked_functions.is_empty() {
@@ -480,7 +494,7 @@ fn main() -> Result<()> {
             for filepath in &files {
                 total_files += 1;
                 let source = fs::read_to_string(filepath)?;
-                let module_name = detect_module_name(filepath);
+                let (module_name, root) = detect_module(filepath)?;
 
                 // Collect deprecated functions from this file
                 let collector = RuffDeprecatedFunctionCollector::new(module_name.clone(), None);
@@ -508,7 +522,7 @@ fn main() -> Result<()> {
                 }
 
                 // Also collect from dependencies if they are imported
-                let dep_result = collect_deprecated_from_dependencies(&source, &module_name, 5)?;
+                let dep_result = collect_dependencies(&source, &module_name, &root)?;
                 all_deprecated.extend(result.replacements);
                 all_deprecated.extend(dep_result.replacements);
             }
@@ -566,10 +580,25 @@ fn main() -> Result<()> {
     }
 }
 
+/// Collect deprecated functions from the modules `source` imports.
+fn collect_dependencies(
+    source: &str,
+    module_name: &str,
+    root: &Path,
+) -> Result<DependencyCollectionResult> {
+    collect_deprecated_from_dependencies_with_paths(
+        source,
+        module_name,
+        5,
+        &[root.to_string_lossy().into_owned()],
+    )
+}
+
 /// Migrate file content using the Rust backend
 fn migrate_file_content(
     source: &str,
     module_name: &str,
+    root: &Path,
     file_path: &Path,
     type_context: &mut TypeIntrospectionContext,
 ) -> Result<Option<String>> {
@@ -583,7 +612,7 @@ fn migrate_file_content(
 
     // Collect deprecated functions from dependencies
     // TODO: Update dependency collector to use Ruff
-    let dep_result = collect_deprecated_from_dependencies(source, module_name, 5)?;
+    let dep_result = collect_dependencies(source, module_name, root)?;
     let dep_count = dep_result.replacements.len();
     all_replacements.extend(dep_result.replacements);
 
@@ -643,6 +672,7 @@ fn migrate_file_content(
 fn interactive_migrate_file_content(
     source: &str,
     module_name: &str,
+    root: &Path,
     file_path: &Path,
     type_context: &mut TypeIntrospectionContext,
 ) -> Result<Option<String>> {
@@ -659,7 +689,7 @@ fn interactive_migrate_file_content(
 
     // Collect deprecated functions from dependencies
     // TODO: Update dependency collector to use Ruff
-    let dep_result = collect_deprecated_from_dependencies(source, module_name, 5)?;
+    let dep_result = collect_dependencies(source, module_name, root)?;
     let dep_count = dep_result.replacements.len();
     all_replacements.extend(dep_result.replacements);
 
