@@ -325,7 +325,7 @@ pub fn collect_deprecated_from_dependencies_with_paths(
         source,
         module_name,
         max_depth,
-        &mut HashSet::new(),
+        &mut HashMap::new(),
         additional_paths,
     )
 }
@@ -335,7 +335,8 @@ fn collect_deprecated_from_dependencies_recursive(
     source: &str,
     module_name: &str,
     max_depth: i32,
-    visited_modules: &mut HashSet<String>,
+    // Largest depth each module's own imports have been followed with.
+    visited_modules: &mut HashMap<String, i32>,
     additional_paths: &[String],
 ) -> Result<DependencyCollectionResult> {
     let mut result = DependencyCollectionResult::new();
@@ -363,13 +364,16 @@ fn collect_deprecated_from_dependencies_recursive(
 
     // Process each unique module
     for (resolved, imp_list) in module_imports {
-        // Skip if we've already visited this module (avoid cycles)
-        if visited_modules.contains(&resolved) {
-            tracing::debug!("Skipping already visited module: {}", resolved);
-            continue;
+        // The replacements that apply depend on what this importer imports, so
+        // they are filtered on every visit. The module's own imports are only
+        // followed again with more depth to spare, which also ends cycles.
+        let follow_imports = visited_modules
+            .get(&resolved)
+            .is_none_or(|&depth| depth < max_depth);
+        if follow_imports {
+            visited_modules.insert(resolved.clone(), max_depth);
         }
         tracing::debug!("Processing module: {} at depth {}", resolved, max_depth);
-        visited_modules.insert(resolved.clone());
 
         // Collect from this module
         tracing::debug!("Attempting to collect from module: {}", resolved);
@@ -517,8 +521,7 @@ fn collect_deprecated_from_dependencies_recursive(
                 .class_methods
                 .extend(module_result.class_methods.clone());
 
-            // If max_depth > 1, recursively process dependencies of this module
-            if max_depth > 1 {
+            if follow_imports && max_depth > 1 {
                 // Read the module's source to find its imports
                 if let Some(module_file) = find_module_file_with_paths(&resolved, additional_paths)
                 {
