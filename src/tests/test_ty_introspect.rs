@@ -254,6 +254,27 @@ def f(store: Store):
 }
 
 #[test]
+fn test_infers_class_narrowed_by_truthiness() {
+    let source = r#"
+class Graph:
+    def parents(self):
+        pass
+
+class Store:
+    def graph(self) -> "Graph | None":
+        return None
+
+def f(store: Store):
+    g = store.graph()
+    if g:
+        g.parents()
+"#;
+    let offset = source.rfind("g.parents").unwrap();
+    let range = TextRange::at(TextSize::try_from(offset).unwrap(), TextSize::from(1));
+    assert_eq!(Some("example.Graph".to_string()), infer_at(source, range));
+}
+
+#[test]
 fn test_no_class_for_with_tuple_target() {
     // `h` is one element of what `__enter__` returns, not the whole tuple.
     let source = r#"
@@ -277,4 +298,25 @@ with make_opener() as (h, n):
     let offset = source.rfind("h.close").unwrap();
     let range = TextRange::at(TextSize::try_from(offset).unwrap(), TextSize::from(1));
     assert_eq!(None, infer_at(source, range));
+}
+
+#[test]
+fn test_infers_protocol_instance() {
+    let source = r#"
+from typing import Protocol
+
+class StateManager(Protocol):
+    def exists(self) -> bool: ...
+
+class DiskStateManager:
+    def exists(self) -> bool:
+        return True
+
+def get_state_manager() -> StateManager:
+    return DiskStateManager()
+
+m = get_state_manager()
+m.exists()
+"#;
+    assert_eq!(Some("example.StateManager".to_string()), infer(source, "m"));
 }

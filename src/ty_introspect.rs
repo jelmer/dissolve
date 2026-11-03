@@ -462,12 +462,22 @@ impl TyTypeIntrospector {
                     None => Some(name.to_string()),
                 }
             }
-            // The receiver of a classmethod or staticmethod call is the class itself.
-            Type::ClassLiteral(_) => {
+            // The receiver of a classmethod or staticmethod call is the class itself,
+            // and an instance of a protocol class is named after that class.
+            Type::ClassLiteral(_) | Type::ProtocolInstance(_) => {
                 let TypeDefinition::StaticClass(definition) = ty.definition(&self.db)? else {
                     return None;
                 };
                 self.qualified_class_name(definition)
+            }
+            // Narrowing such as `if x:` intersects the class with negated types,
+            // which exclude values but leave it an instance of that one class.
+            Type::Intersection(intersection) => {
+                let mut positive = intersection.iter_positive(&self.db);
+                match (positive.next(), positive.next()) {
+                    (Some(only), None) => self.qualified_name(only),
+                    _ => None,
+                }
             }
             _ => None,
         }
