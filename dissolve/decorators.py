@@ -235,7 +235,7 @@ def replace_me(
                 emit_warning(callable, args, kwargs)
                 return original_init(self, *args, **kwargs)
 
-            callable.__init__ = deprecated_init
+            setattr(callable, "__init__", deprecated_init)
             return callable
 
         # Check if the callable is an async function
