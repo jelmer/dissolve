@@ -316,8 +316,12 @@ fn test_names_local_classes_after_callers_module() {
     );
 }
 
-/// A type server that rejects the first snapshot as stale, then reports every
-/// queried expression as an instance of the class declared at the start of the file.
+/// A type server that reports every queried expression as an instance of the
+/// class declared at the start of the file, except at the first snapshot.
+///
+/// There it either rejects the query as stale (`cancel`), or, like
+/// pyright-typeserver, moves to a new snapshot while handling the query and
+/// answers it with no type (`supersede`).
 const STALE_SNAPSHOT_SERVER: &str = r#"
 import json, sys
 
@@ -339,6 +343,7 @@ def send(message):
     sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
     sys.stdout.buffer.flush()
 
+mode = sys.argv[1]
 snapshot = 0
 while True:
     message = read()
@@ -353,8 +358,12 @@ while True:
         snapshot += 1
         result = snapshot
     elif method == "typeServer/getComputedType" and message["params"]["snapshot"] == 1:
-        send({"id": message["id"], "error": {"code": -32802, "message": "stale snapshot"}})
-        continue
+        if mode == "cancel":
+            send({"id": message["id"], "error": {"code": -32802, "message": "stale snapshot"}})
+            continue
+        snapshot += 1
+        send({"method": "typeServer/snapshotChanged", "params": {"old": 1, "new": snapshot}})
+        result = None
     elif method == "typeServer/getComputedType":
         start = {"line": 0, "character": 6}
         result = {
@@ -374,21 +383,33 @@ while True:
     send({"id": message["id"], "result": result})
 "#;
 
-#[test]
-fn test_retries_stale_snapshot() {
+fn query_fake_server(mode: &str) -> Option<String> {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("example.py");
     let source = "class Repo:\n    pass\n\nr = Repo()\nr\n";
     std::fs::write(&path, source).expect("write source");
 
     let mut client = TspClient::with_command(
-        &["python3", "-c", STALE_SNAPSHOT_SERVER],
+        &["python3", "-c", STALE_SNAPSHOT_SERVER, mode],
         Some(dir.path().to_str().unwrap()),
     )
     .expect("fake type server should start");
     let range = range_of(source.rfind('r').unwrap(), "r");
+    client.query_type(&path, "example", range).unwrap()
+}
+
+#[test]
+fn test_retries_stale_snapshot() {
     assert_eq!(
         Some("example.Repo".to_string()),
-        client.query_type(&path, "example", range).unwrap()
+        query_fake_server("cancel")
+    );
+}
+
+#[test]
+fn test_retries_snapshot_superseded_during_query() {
+    assert_eq!(
+        Some("example.Repo".to_string()),
+        query_fake_server("supersede")
     );
 }

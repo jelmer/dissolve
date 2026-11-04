@@ -398,10 +398,15 @@ impl TspClient {
         method: &str,
         params: impl Fn(u64) -> Value,
     ) -> Result<Value> {
-        for _ in 0..MAX_SNAPSHOT_ATTEMPTS {
+        for attempt in 1..=MAX_SNAPSHOT_ATTEMPTS {
             let snapshot = self.snapshot()?;
             match self.request(method, params(snapshot)) {
                 Err(e) if e.is::<ServerCancelled>() => self.snapshot = None,
+                // pyright-typeserver answers for a snapshot superseded while it
+                // handles the request, instead of rejecting it, and the answer
+                // can be wrong. Retry, but settle for that answer if the
+                // server never stops moving.
+                Ok(_) if self.snapshot.is_none() && attempt < MAX_SNAPSHOT_ATTEMPTS => {}
                 result => return result,
             }
         }
