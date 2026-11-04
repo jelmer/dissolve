@@ -231,8 +231,10 @@ class Parent:
     @replace_me(...)
     def old_method(self): ...
 
+
 class Child(Parent):
     pass
+
 
 Child().old_method()  # Correctly identifies and replaces
 ```
