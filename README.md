@@ -51,8 +51,10 @@ version 0.1.0 of your library:
 ```python
 from dissolve import replace_me
 
+
 def increment(x):
     return x + 1
+
 
 @replace_me(since="0.1.0")
 def inc(x):
@@ -186,9 +188,9 @@ from mylib.utils import old_function as legacy_func
 import mylib.utils
 
 # Are all recognized in these calls:
-old_function()               # Direct import
-legacy_func()                # Aliased import
-mylib.utils.old_function()   # Module attribute access
+old_function()  # Direct import
+legacy_func()  # Aliased import
+mylib.utils.old_function()  # Module attribute access
 ```
 
 ### Context Managers
@@ -210,8 +212,10 @@ class Base:
     def old_method(self):
         return self.new_method()
 
+
 class Child(Base):
     pass
+
 
 obj = Child()
 obj.old_method()  # Migrated even though method is defined in parent class
@@ -345,22 +349,24 @@ Classes can be deprecated by applying the `@replace_me` decorator to the class d
 ```python
 from dissolve import replace_me
 
+
 class UserManager:
     def __init__(self, database_url, cache_size=100):
         self.db = Database(database_url)
         self.cache = Cache(cache_size)
-    
+
     def get_user(self, user_id):
         return self.db.fetch_user(user_id)
+
 
 @replace_me(since="2.0.0")
 class UserService:
     def __init__(self, database_url, cache_size=50):
         self._manager = UserManager(database_url, cache_size * 2)
-    
+
     def get_user(self, user_id):
         return self._manager.get_user(user_id)
-    
+
     def old_method_name(self, arg):
         return self._manager.new_method_name(arg)
 ```
@@ -406,6 +412,7 @@ from dissolve import replace_me
 # Module-level attribute
 OLD_API_URL = replace_me("https://api.example.com/v2")
 
+
 # Class attribute
 class Config:
     OLD_TIMEOUT = replace_me(30)
@@ -435,9 +442,11 @@ Async functions are fully supported and work just like regular functions:
 from dissolve import replace_me
 import asyncio
 
+
 async def new_fetch_data(url, timeout=30):
     # Modern implementation
     return await fetch_with_timeout(url, timeout)
+
 
 @replace_me(since="3.0.0")
 async def old_fetch_data(url):
@@ -461,12 +470,13 @@ can be combined with `@classmethod` and `@staticmethod` decorators:
 ```python
 from dissolve import replace_me
 
+
 class DataProcessor:
     @classmethod
     @replace_me(since="2.0.0")
     def old_process_data(cls, data):
         return cls.new_process_data(data.strip().upper())
-    
+
     @classmethod
     def new_process_data(cls, processed_data):
         return f"Processed: {processed_data}"
@@ -518,7 +528,9 @@ except ModuleNotFoundError:
                 msg += ". Consider running 'dissolve migrate' to automatically update your code."
                 warnings.warn(msg, DeprecationWarning, stacklevel=2)
                 return func(*args, **kwargs)
+
             return wrapper
+
         return decorator
 ```
 

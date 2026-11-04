@@ -294,6 +294,10 @@ impl TyTypeIntrospector {
         let function_module = parsed_module(&self.db, function_file).load(&self.db);
         let range = definition.full_range(&self.db, &function_module).range();
         let function = function_at_range(function_module.syntax(), range)?;
+        // ty already answered from the annotation; the body can only contradict it.
+        if function.returns.is_some() {
+            return None;
+        }
         let function_model = SemanticModel::new(&self.db, function_file);
 
         self.single_return_class(&function_model, &function.body, depth)
@@ -321,7 +325,7 @@ impl TyTypeIntrospector {
         let binding_file = definition.file(&self.db);
         let binding_module = parsed_module(&self.db, binding_file).load(&self.db);
         let range = definition.full_range(&self.db, &binding_module).range();
-        let binding = bound_value_at_range(binding_module.syntax(), range)?;
+        let binding = bound_value_at_range(binding_module.syntax(), range, name.id.as_str())?;
 
         let binding_model = SemanticModel::new(&self.db, binding_file);
         match binding {
@@ -353,6 +357,9 @@ impl TyTypeIntrospector {
             Stmt::FunctionDef(f) if f.name.as_str() == "__enter__" => Some(f),
             _ => None,
         })?;
+        if enter.returns.is_some() {
+            return None;
+        }
 
         // `return self` is the common case, and ty types `self` as a TypeVar rather
         // than an instance, so answer it with the context manager's own class.
@@ -404,6 +411,9 @@ impl TyTypeIntrospector {
         let module = parsed_module(&self.db, file).load(&self.db);
         let range = function.full_range(&self.db, &module).range();
         let function = function_at_range(module.syntax(), range)?;
+        if function.returns.is_some() {
+            return None;
+        }
         let function_model = SemanticModel::new(&self.db, file);
 
         let mut found: Option<Definition<'db>> = None;
@@ -452,12 +462,22 @@ impl TyTypeIntrospector {
                     None => Some(name.to_string()),
                 }
             }
-            // The receiver of a classmethod or staticmethod call is the class itself.
-            Type::ClassLiteral(_) => {
+            // The receiver of a classmethod or staticmethod call is the class itself,
+            // and an instance of a protocol class is named after that class.
+            Type::ClassLiteral(_) | Type::ProtocolInstance(_) => {
                 let TypeDefinition::StaticClass(definition) = ty.definition(&self.db)? else {
                     return None;
                 };
                 self.qualified_class_name(definition)
+            }
+            // Narrowing such as `if x:` intersects the class with negated types,
+            // which exclude values but leave it an instance of that one class.
+            Type::Intersection(intersection) => {
+                let mut positive = intersection.iter_positive(&self.db);
+                match (positive.next(), positive.next()) {
+                    (Some(only), None) => self.qualified_name(only),
+                    _ => None,
+                }
             }
             _ => None,
         }
@@ -529,62 +549,75 @@ fn class_at_range(
 /// The binding a name at `range` came from.
 ///
 /// `range` covers the whole binding statement, not just the target name.
-fn bound_value_at_range(
-    module: &ruff_python_ast::ModModule,
+///
+/// Only a binding of `name` itself counts: in `a, b = value`, `a` holds an
+/// element of `value` rather than `value`.
+fn bound_value_at_range<'a>(
+    module: &'a ruff_python_ast::ModModule,
     range: TextRange,
-) -> Option<Binding<'_>> {
-    fn walk<'a>(body: &'a [Stmt], range: TextRange) -> Option<Binding<'a>> {
+    name: &str,
+) -> Option<Binding<'a>> {
+    fn walk<'a>(body: &'a [Stmt], range: TextRange, name: &str) -> Option<Binding<'a>> {
+        let is_name = |target: &Expr| matches!(target, Expr::Name(n) if n.id.as_str() == name);
         for stmt in body {
             if !stmt.range().contains_range(range) {
                 continue;
             }
             match stmt {
                 Stmt::Assign(assign) if assign.range() == range => {
-                    return Some(Binding::Assigned(&assign.value));
+                    return assign
+                        .targets
+                        .iter()
+                        .any(is_name)
+                        .then_some(Binding::Assigned(&assign.value));
                 }
                 Stmt::With(with) => {
                     // The binding ty reports may be the item or just its target name.
                     for item in &with.items {
                         if item.range().contains_range(range) {
-                            return Some(Binding::ContextManager(&item.context_expr));
+                            return item
+                                .optional_vars
+                                .as_deref()
+                                .is_some_and(is_name)
+                                .then_some(Binding::ContextManager(&item.context_expr));
                         }
                     }
-                    if let Some(found) = walk(&with.body, range) {
+                    if let Some(found) = walk(&with.body, range, name) {
                         return Some(found);
                     }
                 }
                 Stmt::FunctionDef(f) => {
-                    if let Some(found) = walk(&f.body, range) {
+                    if let Some(found) = walk(&f.body, range, name) {
                         return Some(found);
                     }
                 }
                 Stmt::ClassDef(c) => {
-                    if let Some(found) = walk(&c.body, range) {
+                    if let Some(found) = walk(&c.body, range, name) {
                         return Some(found);
                     }
                 }
                 Stmt::If(node) => {
-                    if let Some(found) = walk(&node.body, range) {
+                    if let Some(found) = walk(&node.body, range, name) {
                         return Some(found);
                     }
                     for clause in &node.elif_else_clauses {
-                        if let Some(found) = walk(&clause.body, range) {
+                        if let Some(found) = walk(&clause.body, range, name) {
                             return Some(found);
                         }
                     }
                 }
                 Stmt::For(node) => {
-                    if let Some(found) = walk(&node.body, range) {
+                    if let Some(found) = walk(&node.body, range, name) {
                         return Some(found);
                     }
                 }
                 Stmt::While(node) => {
-                    if let Some(found) = walk(&node.body, range) {
+                    if let Some(found) = walk(&node.body, range, name) {
                         return Some(found);
                     }
                 }
                 Stmt::Try(node) => {
-                    if let Some(found) = walk(&node.body, range) {
+                    if let Some(found) = walk(&node.body, range, name) {
                         return Some(found);
                     }
                 }
@@ -593,7 +626,7 @@ fn bound_value_at_range(
         }
         None
     }
-    walk(&module.body, range)
+    walk(&module.body, range, name)
 }
 
 /// Find the function definition at `range` in ty's parse of the file.
