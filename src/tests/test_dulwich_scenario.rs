@@ -341,3 +341,111 @@ def make_commits(repo_path: str, messages: List[str], author: Optional[str] = No
     assert!(result.contains("messages: List[str]"));
     assert!(result.contains("author: Optional[str] = None"));
 }
+
+#[test]
+fn test_collection_independent_of_transitive_imports() {
+    // `client` imports `Protocol` directly, but also imports `repo`, which
+    // imports something else from `proto`. Reaching `proto` through `repo`
+    // first must not hide the deprecated `Protocol` method from `client`.
+    let temp_dir = TempDir::new().unwrap();
+    create_module(temp_dir.path(), "orderpkg/__init__.py", "");
+    create_module(
+        temp_dir.path(),
+        "orderpkg/proto.py",
+        r#"
+from dissolve import replace_me
+
+CONSTANT = 1
+
+class Protocol:
+    @replace_me()
+    def old_write(self, line):
+        return self.write(line)
+
+    def write(self, line):
+        pass
+"#,
+    );
+    create_module(
+        temp_dir.path(),
+        "orderpkg/repo.py",
+        r#"
+from .proto import CONSTANT
+
+class Repo:
+    pass
+"#,
+    );
+    let source = r#"
+from .repo import Repo
+from .proto import Protocol
+
+def send(proto: Protocol):
+    proto.old_write(b"x")
+"#;
+
+    let additional_paths = vec![temp_dir.path().to_string_lossy().to_string()];
+    // The import walk order is randomised, so repeat to cover both orders.
+    for _ in 0..20 {
+        let dep_result = collect_deprecated_from_dependencies_with_paths(
+            source,
+            "orderpkg.client",
+            5,
+            &additional_paths,
+        )
+        .unwrap();
+        let mut keys: Vec<_> = dep_result.replacements.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(vec!["orderpkg.proto.Protocol.old_write".to_string()], keys);
+    }
+}
+
+#[test]
+fn test_collection_depth_independent_of_import_order() {
+    // `client` imports `repo` directly and through `porcelain`. Reaching `repo`
+    // through `porcelain` first leaves no depth to follow its imports, which
+    // must not stop the direct import from following them to `objects`.
+    let temp_dir = TempDir::new().unwrap();
+    create_module(temp_dir.path(), "depthpkg/__init__.py", "");
+    create_module(
+        temp_dir.path(),
+        "depthpkg/objects.py",
+        r#"
+from dissolve import replace_me
+
+class Commit:
+    @replace_me()
+    def old_id(self):
+        return self.id()
+
+    def id(self):
+        pass
+"#,
+    );
+    create_module(
+        temp_dir.path(),
+        "depthpkg/repo.py",
+        "from .objects import Commit\n",
+    );
+    create_module(
+        temp_dir.path(),
+        "depthpkg/porcelain.py",
+        "from .repo import Commit\n",
+    );
+    let source = "from .porcelain import Commit\nfrom .repo import Commit\n";
+
+    let additional_paths = vec![temp_dir.path().to_string_lossy().to_string()];
+    // The import walk order is randomised, so repeat to cover both orders.
+    for _ in 0..20 {
+        let dep_result = collect_deprecated_from_dependencies_with_paths(
+            source,
+            "depthpkg.client",
+            2,
+            &additional_paths,
+        )
+        .unwrap();
+        let mut keys: Vec<_> = dep_result.replacements.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(vec!["depthpkg.objects.Commit.old_id".to_string()], keys);
+    }
+}
