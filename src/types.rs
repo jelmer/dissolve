@@ -24,6 +24,8 @@ pub enum TypeIntrospectionMethod {
     Ty,
     /// Use pyright LSP for type inference
     PyrightLsp,
+    /// Use a type server speaking the Type Server Protocol
+    Tsp,
 }
 
 /// Response from user during interactive mode

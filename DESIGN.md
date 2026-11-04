@@ -75,6 +75,7 @@ Performs the actual code transformations:
 #### 5. Type Introspection (`src/type_introspection_context.rs`)
 Provides type information for accurate replacements:
 - **Pyright Integration** (`src/pyright_lsp.rs`): LSP-based type checking
+- **Type Server Protocol** (`src/tsp_introspect.rs`): structured types from a TSP server such as `pyright-typeserver`
 - **MyPy Integration** (`src/mypy_lsp.rs`): Daemon-based type analysis
 - Falls back gracefully when type checkers unavailable
 - Caches type information for performance

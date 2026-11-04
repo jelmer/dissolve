@@ -4,6 +4,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use crate::pyright_lsp::PyrightLspClient;
+use crate::tsp_introspect::TspClient;
 use crate::ty_introspect::TyTypeIntrospector;
 use crate::types::TypeIntrospectionMethod;
 
@@ -12,6 +13,7 @@ pub struct TypeIntrospectionContext {
     method: TypeIntrospectionMethod,
     pyright_client: Option<Rc<RefCell<PyrightLspClient>>>,
     ty_client: Option<Rc<RefCell<TyTypeIntrospector>>>,
+    tsp_client: Option<Rc<RefCell<TspClient>>>,
     file_versions: std::collections::HashMap<String, i32>,
     is_shutdown: bool,
 }
@@ -27,14 +29,18 @@ impl TypeIntrospectionContext {
         method: TypeIntrospectionMethod,
         workspace_root: Option<&str>,
     ) -> Result<Self> {
-        let (pyright_client, ty_client) = match method {
+        let (pyright_client, ty_client, tsp_client) = match method {
             TypeIntrospectionMethod::Ty => {
                 let client = TyTypeIntrospector::new(workspace_root)?;
-                (None, Some(Rc::new(RefCell::new(client))))
+                (None, Some(Rc::new(RefCell::new(client))), None)
             }
             TypeIntrospectionMethod::PyrightLsp => {
                 let client = PyrightLspClient::new(workspace_root)?;
-                (Some(Rc::new(RefCell::new(client))), None)
+                (Some(Rc::new(RefCell::new(client))), None, None)
+            }
+            TypeIntrospectionMethod::Tsp => {
+                let client = TspClient::new(workspace_root)?;
+                (None, None, Some(Rc::new(RefCell::new(client))))
             }
         };
 
@@ -42,6 +48,7 @@ impl TypeIntrospectionContext {
             method,
             pyright_client,
             ty_client,
+            tsp_client,
             file_versions: std::collections::HashMap::new(),
             is_shutdown: false,
         })
@@ -62,6 +69,11 @@ impl TypeIntrospectionContext {
         self.ty_client.as_ref().map(|rc| rc.clone())
     }
 
+    /// Get a clone of the type server client if available
+    pub fn tsp_client(&self) -> Option<Rc<RefCell<TspClient>>> {
+        self.tsp_client.clone()
+    }
+
     /// Open a file for type introspection
     pub fn open_file(&mut self, file_path: &Path, content: &str) -> Result<()> {
         let path_str = file_path.to_string_lossy();
@@ -72,6 +84,10 @@ impl TypeIntrospectionContext {
         }
 
         if let Some(ref client) = self.ty_client {
+            client.borrow_mut().set_file_content(file_path, content)?;
+        }
+
+        if let Some(ref client) = self.tsp_client {
             client.borrow_mut().set_file_content(file_path, content)?;
         }
 
@@ -99,6 +115,10 @@ impl TypeIntrospectionContext {
             client.borrow_mut().set_file_content(file_path, content)?;
         }
 
+        if let Some(ref client) = self.tsp_client {
+            client.borrow_mut().set_file_content(file_path, content)?;
+        }
+
         Ok(())
     }
 
@@ -114,6 +134,10 @@ impl TypeIntrospectionContext {
         }
 
         if let Some(ref client) = self.pyright_client {
+            client.borrow_mut().shutdown()?;
+        }
+
+        if let Some(ref client) = self.tsp_client {
             client.borrow_mut().shutdown()?;
         }
 
