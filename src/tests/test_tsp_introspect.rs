@@ -315,3 +315,80 @@ fn test_names_local_classes_after_callers_module() {
         client.query_type(&path, "pkg.real", range).unwrap()
     );
 }
+
+/// A type server that rejects the first snapshot as stale, then reports every
+/// queried expression as an instance of the class declared at the start of the file.
+const STALE_SNAPSHOT_SERVER: &str = r#"
+import json, sys
+
+def read():
+    length = None
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            sys.exit(0)
+        if line == b"\r\n":
+            break
+        key, value = line.decode().split(":", 1)
+        if key.lower() == "content-length":
+            length = int(value)
+    return json.loads(sys.stdin.buffer.read(length))
+
+def send(message):
+    body = json.dumps(dict(message, jsonrpc="2.0")).encode()
+    sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+    sys.stdout.buffer.flush()
+
+snapshot = 0
+while True:
+    message = read()
+    method = message["method"]
+    if "id" not in message:
+        if method == "exit":
+            break
+        continue
+    if method == "typeServer/getSupportedProtocolVersion":
+        result = "0.4.1"
+    elif method == "typeServer/getSnapshot":
+        snapshot += 1
+        result = snapshot
+    elif method == "typeServer/getComputedType" and message["params"]["snapshot"] == 1:
+        send({"id": message["id"], "error": {"code": -32802, "message": "stale snapshot"}})
+        continue
+    elif method == "typeServer/getComputedType":
+        start = {"line": 0, "character": 6}
+        result = {
+            "kind": 3,
+            "flags": 2,
+            "declaration": {
+                "kind": 0,
+                "name": "Repo",
+                "node": {
+                    "uri": message["params"]["arg"]["uri"],
+                    "range": {"start": start, "end": start},
+                },
+            },
+        }
+    else:
+        result = None
+    send({"id": message["id"], "result": result})
+"#;
+
+#[test]
+fn test_retries_stale_snapshot() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("example.py");
+    let source = "class Repo:\n    pass\n\nr = Repo()\nr\n";
+    std::fs::write(&path, source).expect("write source");
+
+    let mut client = TspClient::with_command(
+        &["python3", "-c", STALE_SNAPSHOT_SERVER],
+        Some(dir.path().to_str().unwrap()),
+    )
+    .expect("fake type server should start");
+    let range = range_of(source.rfind('r').unwrap(), "r");
+    assert_eq!(
+        Some("example.Repo".to_string()),
+        client.query_type(&path, "example", range).unwrap()
+    );
+}

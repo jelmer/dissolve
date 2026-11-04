@@ -44,11 +44,21 @@ pub const DEFAULT_COMMAND: &[&str] = &["pyright-typeserver", "--stdio"];
 const PROTOCOL_VERSION: &str = "0.4";
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+/// LSP's ServerCancelled, which TSP servers use to reject a stale snapshot.
+const SERVER_CANCELLED: i64 = -32802;
+const MAX_SNAPSHOT_ATTEMPTS: usize = 5;
 
 const TYPE_KIND_CLASS: u32 = 3;
 const DECLARATION_KIND_REGULAR: u32 = 0;
 const TYPE_FLAG_INSTANTIABLE: u32 = 1;
 const TYPE_FLAG_INSTANCE: u32 = 2;
+
+#[derive(Debug, thiserror::Error)]
+#[error("type server cancelled {method}: {error}")]
+struct ServerCancelled {
+    method: String,
+    error: Value,
+}
 
 #[derive(Debug, Deserialize)]
 struct TspType {
@@ -239,10 +249,9 @@ impl TspClient {
             },
         });
 
-        let snapshot = self.snapshot()?;
-        let result = self.request(
+        let result = self.request_at_snapshot(
             "typeServer/getComputedType",
-            json!({"arg": node, "snapshot": snapshot}),
+            |snapshot| json!({"arg": node, "snapshot": snapshot}),
         )?;
         if result.is_null() {
             return Ok(None);
@@ -314,10 +323,10 @@ impl TspClient {
 
     fn search_paths(&mut self, from: &Path) -> Result<&[PathBuf]> {
         if self.search_paths.is_none() {
-            let snapshot = self.snapshot()?;
-            let result = self.request(
+            let from_uri = path_to_uri(from);
+            let result = self.request_at_snapshot(
                 "typeServer/getPythonSearchPaths",
-                json!({"fromUri": path_to_uri(from), "snapshot": snapshot}),
+                |snapshot| json!({"fromUri": from_uri, "snapshot": snapshot}),
             )?;
             let uris: Vec<String> = serde_json::from_value(result)
                 .context("type server returned malformed search paths")?;
@@ -382,6 +391,23 @@ impl TspClient {
         Ok(snapshot)
     }
 
+    /// Send a request answered at the current snapshot, retrying with a fresh
+    /// snapshot while the server rejects it as stale.
+    fn request_at_snapshot(
+        &mut self,
+        method: &str,
+        params: impl Fn(u64) -> Value,
+    ) -> Result<Value> {
+        for _ in 0..MAX_SNAPSHOT_ATTEMPTS {
+            let snapshot = self.snapshot()?;
+            match self.request(method, params(snapshot)) {
+                Err(e) if e.is::<ServerCancelled>() => self.snapshot = None,
+                result => return result,
+            }
+        }
+        bail!("type server rejected {MAX_SNAPSHOT_ATTEMPTS} snapshots in a row for {method}")
+    }
+
     fn request(&mut self, method: &str, params: Value) -> Result<Value> {
         self.next_id += 1;
         let id = self.next_id;
@@ -401,6 +427,13 @@ impl TspClient {
             match (message.get("id"), message.get("method")) {
                 (Some(message_id), None) if message_id.as_u64() == Some(id) => {
                     if let Some(error) = message.get("error") {
+                        if error.get("code").and_then(Value::as_i64) == Some(SERVER_CANCELLED) {
+                            return Err(ServerCancelled {
+                                method: method.to_string(),
+                                error: error.clone(),
+                            }
+                            .into());
+                        }
                         bail!("type server failed {method}: {error}");
                     }
                     return Ok(message.get("result").cloned().unwrap_or(Value::Null));
