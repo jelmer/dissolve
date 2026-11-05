@@ -45,10 +45,26 @@ pub struct ImprovedFunctionCallReplacer<'a> {
     inheritance_map: HashMap<String, Vec<String>>, // Maps class names to their base classes
     pyright_client: Option<Rc<RefCell<crate::pyright_lsp::PyrightLspClient>>>, // Reuse client for performance
     ty_client: Option<Rc<RefCell<crate::ty_introspect::TyTypeIntrospector>>>, // In-process ty inference
+    tsp_client: Option<Rc<RefCell<crate::tsp_introspect::TspClient>>>,
     type_cache: RefCell<HashMap<(u32, u32), Option<String>>>, // Cache type lookups by (line, column)
 }
 
 impl<'a> ImprovedFunctionCallReplacer<'a> {
+    fn query_tsp(&self, range: TextRange) -> Result<String> {
+        let client = self
+            .tsp_client
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("type server client not available"))?;
+        client
+            .borrow_mut()
+            .query_type(
+                std::path::Path::new(&self.file_path),
+                &self.module_name,
+                range,
+            )?
+            .ok_or_else(|| anyhow::anyhow!("No type information available from the type server"))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         replacements: HashMap<String, ReplaceInfo>,
@@ -61,14 +77,14 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
         inheritance_map: HashMap<String, Vec<String>>,
     ) -> Result<Self> {
         // Initialize type introspection clients based on method
-        let (pyright_client, ty_client) = match type_introspection {
+        let (pyright_client, ty_client, tsp_client) = match type_introspection {
             TypeIntrospectionMethod::Ty => {
                 match crate::ty_introspect::TyTypeIntrospector::new(None) {
                     Ok(mut client) => {
                         // The source may only exist in memory, so hand it to ty directly.
                         client
                             .set_file_content(std::path::Path::new(&file_path), &source_content)?;
-                        (None, Some(Rc::new(RefCell::new(client))))
+                        (None, Some(Rc::new(RefCell::new(client))), None)
                     }
                     Err(e) => {
                         return Err(anyhow::anyhow!("Failed to initialize ty: {}. Type introspection is required for safe migrations.", e));
@@ -81,12 +97,19 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                     Ok(mut client) => {
                         // Pre-open the file in pyright
                         client.open_file(&file_path, &source_content)?;
-                        (Some(Rc::new(RefCell::new(client))), None)
+                        (Some(Rc::new(RefCell::new(client))), None, None)
                     }
                     Err(e) => {
                         return Err(anyhow::anyhow!("Failed to initialize pyright LSP client: {}. Type introspection is required for safe migrations.", e));
                     }
                 }
+            }
+            TypeIntrospectionMethod::Tsp => {
+                let mut client = crate::tsp_introspect::TspClient::new(None).map_err(|e| {
+                    anyhow::anyhow!("Failed to start type server: {}. Type introspection is required for safe migrations.", e)
+                })?;
+                client.set_file_content(std::path::Path::new(&file_path), &source_content)?;
+                (None, None, Some(Rc::new(RefCell::new(client))))
             }
         };
 
@@ -102,6 +125,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
             inheritance_map,
             pyright_client,
             ty_client,
+            tsp_client,
             type_cache: RefCell::new(HashMap::new()),
         };
 
@@ -129,6 +153,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
         // Get the clients from context
         let pyright_client = type_introspection_context.pyright_client();
         let ty_client = type_introspection_context.ty_client();
+        let tsp_client = type_introspection_context.tsp_client();
 
         let mut replacer = Self {
             replacements_info: replacements,
@@ -142,6 +167,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
             inheritance_map,
             pyright_client,
             ty_client,
+            tsp_client,
             type_cache: RefCell::new(HashMap::new()),
         };
 
@@ -334,6 +360,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                     Err(anyhow::anyhow!("ty client not available"))
                 }
             }
+            TypeIntrospectionMethod::Tsp => self.query_tsp(expr_range),
         };
 
         match type_result {
@@ -804,6 +831,7 @@ impl<'a> ImprovedFunctionCallReplacer<'a> {
                     Err(anyhow::anyhow!("ty client not available"))
                 }
             }
+            TypeIntrospectionMethod::Tsp => self.query_tsp(range),
         };
 
         match type_result {

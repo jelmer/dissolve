@@ -137,6 +137,9 @@ enum TypeIntrospectionMethodArg {
     /// Infer types with the pyright language server
     #[value(name = "pyright-lsp")]
     PyrightLsp,
+    /// Infer types with a Type Server Protocol server (pyright-typeserver)
+    #[value(name = "tsp")]
+    Tsp,
 }
 
 impl From<TypeIntrospectionMethodArg> for TypeIntrospectionMethod {
@@ -144,6 +147,7 @@ impl From<TypeIntrospectionMethodArg> for TypeIntrospectionMethod {
         match arg {
             TypeIntrospectionMethodArg::Ty => TypeIntrospectionMethod::Ty,
             TypeIntrospectionMethodArg::PyrightLsp => TypeIntrospectionMethod::PyrightLsp,
+            TypeIntrospectionMethodArg::Tsp => TypeIntrospectionMethod::Tsp,
         }
     }
 }
